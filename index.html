@@ -1764,33 +1764,36 @@ function App() {
     return()=>subscription.unsubscribe();
   },[]);
 
-  // ── Garden state ────────────────────────────────────────────
+  // ── Garden state — always start empty, filled by Supabase load ─
   const [dbLoaded,setDbLoaded]=useState(false);
-  const [settings,setSettings]   = useState(()=>ls.get("garden:settings",null));
-  const [locations,setLocations] = useState(()=>ls.get("garden:locations",[]));
-  const [crops,setCrops]         = useState(()=>{
-    const raw=ls.get("garden:crops",[]);
-    const seen=new Set();
-    return raw.map(c=>{
-      let id=c.id;
-      if(typeof id!=="string"||!id.startsWith("crop_")||seen.has(id)) id=uid("crop");
-      seen.add(id);
-      return {...c,id};
-    });
-  });
-  const [todos,setTodos]         = useState(()=>ls.get("garden:todos",[]));
-  const [nutrients,setNutrients] = useState(()=>ls.get("garden:nutrients",DEFAULT_NUTRIENTS));
-  const [cropNames,setCropNames] = useState(()=>ls.get("garden:cropNames",DEFAULT_CROPS));
-  const [varieties,setVarieties] = useState(()=>ls.get("garden:varieties",{}));
+  const [settings,setSettings]   = useState(null);
+  const [locations,setLocations] = useState([]);
+  const [crops,setCrops]         = useState([]);
+  const [todos,setTodos]         = useState([]);
+  const [nutrients,setNutrients] = useState(DEFAULT_NUTRIENTS);
+  const [cropNames,setCropNames] = useState(DEFAULT_CROPS);
+  const [varieties,setVarieties] = useState({});
 
-  // Load from Supabase when user logs in
+  // Load from Supabase when user logs in — always replaces state entirely
   useEffect(()=>{
-    if(!user){setDbLoaded(false);return;}
+    if(!user){
+      // User signed out — wipe all state so next user starts clean
+      setDbLoaded(false);
+      setSettings(null);
+      setLocations([]);
+      setCrops([]);
+      setTodos([]);
+      setNutrients(DEFAULT_NUTRIENTS);
+      setCropNames(DEFAULT_CROPS);
+      setVarieties({});
+      return;
+    }
     setDbLoaded(false);
     dbLoad(user.id).then(row=>{
       if(row){
-        if(row.settings)  setSettings(row.settings);
-        if(row.locations) setLocations(row.locations);
+        // Existing user — load their data
+        if(row.settings)   setSettings(row.settings);
+        if(row.locations)  setLocations(row.locations);
         if(row.crops){
           const seen=new Set();
           setCrops(row.crops.map(c=>{
@@ -1805,6 +1808,7 @@ function App() {
         if(row.crop_names) setCropNames(row.crop_names);
         if(row.varieties)  setVarieties(row.varieties);
       }
+      // New user — state stays at empty defaults, wizard will run
       setDbLoaded(true);
     });
   },[user?.id]);
@@ -1819,14 +1823,15 @@ function App() {
     },1500);
   },[user?.id]);
 
-  // Also always mirror to localStorage as offline cache
-  useEffect(()=>{if(settings){ls.set("garden:settings",settings);if(dbLoaded)scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties});}}, [settings]);
-  useEffect(()=>{ls.set("garden:locations",locations);if(dbLoaded)scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties});},[locations]);
-  useEffect(()=>{ls.set("garden:crops",crops);if(dbLoaded)scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties});},[crops]);
-  useEffect(()=>{ls.set("garden:todos",todos);if(dbLoaded)scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties});},[todos]);
-  useEffect(()=>{ls.set("garden:nutrients",nutrients);if(dbLoaded)scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties});},[nutrients]);
-  useEffect(()=>{ls.set("garden:cropNames",cropNames);if(dbLoaded)scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties});},[cropNames]);
-  useEffect(()=>{ls.set("garden:varieties",varieties);if(dbLoaded)scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties});},[varieties]);
+  // Single unified save effect — fires whenever any garden state changes
+  // useRef tracks dbLoaded to avoid the stale-closure problem with individual effects
+  const dbLoadedRef = useRef(false);
+  useEffect(()=>{ dbLoadedRef.current = dbLoaded; },[dbLoaded]);
+
+  useEffect(()=>{
+    if(!dbLoadedRef.current||!user||!settings) return;
+    scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties});
+  },[settings,locations,crops,todos,nutrients,cropNames,varieties]);
 
   // ── Weather ─────────────────────────────────────────────────
   const [weatherData,setWeatherData]=useState(null);
@@ -1885,7 +1890,15 @@ function App() {
   if(!user) return <AuthScreen onAuth={u=>setUser(u)}/>;
   if(!dbLoaded) return <div style={{width:"100%",height:"100%",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"12px"}}><div style={{fontSize:"2.5rem"}}>🌿</div><div style={{fontSize:"0.85rem",color:"rgba(255,255,255,0.4)"}}>Loading your garden…</div></div>;
   if(!settings){
-    return <Wizard onComplete={(s,addCrop)=>{setSettings(s);setLocations(s.locations);if(addCrop)setView("addCrop");}}/>;
+    return <Wizard onComplete={(s,addCrop)=>{
+      const newSettings={gardenName:s.gardenName,zone:s.zone,zip:s.zip};
+      const newLocations=s.locations;
+      setSettings(newSettings);
+      setLocations(newLocations);
+      // Immediately save to Supabase so new user's data is persisted right away
+      if(user) dbSave(user.id,{settings:newSettings,locations:newLocations,crops:[],todos:[],nutrients:DEFAULT_NUTRIENTS,crop_names:DEFAULT_CROPS,varieties:{}});
+      if(addCrop) setView("addCrop");
+    }}/>;
   }
 
   const saveCrop=(crop,newLocs)=>{
@@ -2116,7 +2129,12 @@ function App() {
       <SettingsPanel show={view==="settings"} settings={settings} locations={locations}
         user={user} syncing={syncing}
         onSave={(s,locs)=>{setSettings(p=>({...p,...s}));setLocations(locs);setView("dashboard");}}
-        onSignOut={async()=>{await sb.auth.signOut();setUser(null);setDbLoaded(false);}}
+        onSignOut={async()=>{
+          await sb.auth.signOut();
+          // Wipe localStorage so next user on this device starts clean
+          ["garden:settings","garden:locations","garden:crops","garden:todos","garden:nutrients","garden:cropNames","garden:varieties"].forEach(k=>localStorage.removeItem(k));
+          setUser(null);setDbLoaded(false);
+        }}
         onClose={()=>setView("dashboard")}/>
     </div>
   );
