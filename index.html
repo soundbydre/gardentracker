@@ -10,6 +10,7 @@
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body, #root { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: "Figtree", sans-serif; }
@@ -27,7 +28,25 @@
 <div id="root"></div>
 <script type="text/babel">
 
-const { useState, useEffect, useRef } = React;
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ── Supabase ────────────────────────────────────────────────────
+const SUPABASE_URL = "https://mburweqvywbztvrepslo.supabase.co";
+const SUPABASE_KEY = "sb_publishable_TpOFNh2fXllxrDQuaHP4jg_nfc_CopV";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Load all garden data for the logged-in user
+async function dbLoad(userId) {
+  const { data, error } = await sb.from("garden_data").select("*").eq("user_id", userId).single();
+  if (error && error.code !== "PGRST116") { console.error("dbLoad error", error); return null; }
+  return data || null;
+}
+
+// Upsert all garden data for the user (full replace)
+async function dbSave(userId, payload) {
+  const { error } = await sb.from("garden_data").upsert({ user_id: userId, ...payload, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+  if (error) console.error("dbSave error", error);
+}
 
 // ── Design Tokens ──────────────────────────────────────────────
 const C = {
@@ -236,6 +255,66 @@ function StatTile({label,value}) {
   return <div style={{background:"white",borderRadius:"12px",padding:"12px 14px",border:`1px solid ${C.border}`}}><div style={{fontSize:"0.7rem",fontWeight:600,color:C.textFaint,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:"3px"}}>{label}</div><div style={{fontSize:"1rem",fontWeight:700,color:C.text}}>{value}</div></div>;
 }
 
+// ── Auth Screen ────────────────────────────────────────────────
+function AuthScreen({onAuth}) {
+  const [mode,setMode]=useState("signin"); // "signin" | "signup" | "reset"
+  const [email,setEmail]=useState("");
+  const [password,setPassword]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
+  const [message,setMessage]=useState("");
+  const wi={width:"100%",padding:"14px 16px",borderRadius:"12px",border:"1.5px solid rgba(255,255,255,0.15)",background:"rgba(255,255,255,0.08)",color:"white",fontSize:"1rem",outline:"none",boxSizing:"border-box"};
+
+  async function handleSubmit() {
+    setError(""); setMessage(""); setLoading(true);
+    if(mode==="reset"){
+      const {error:e}=await sb.auth.resetPasswordForEmail(email,{redirectTo:window.location.href});
+      setLoading(false);
+      if(e) setError(e.message);
+      else setMessage("Check your email for a password reset link.");
+      return;
+    }
+    const fn=mode==="signup"?sb.auth.signUp.bind(sb.auth):sb.auth.signInWithPassword.bind(sb.auth);
+    const {data,error:e}=await fn({email,password});
+    setLoading(false);
+    if(e){setError(e.message);return;}
+    if(mode==="signup"&&!data.session){
+      setMessage("Check your email to confirm your account, then sign in.");
+      setMode("signin");
+      return;
+    }
+    if(data.session) onAuth(data.session.user);
+  }
+
+  return(
+    <div style={{width:"100%",height:"100%",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 28px"}}>
+      <div style={{width:"100%",maxWidth:"360px",display:"flex",flexDirection:"column",gap:"20px"}}>
+        <div style={{textAlign:"center",marginBottom:"8px"}}>
+          <div style={{fontSize:"3rem",marginBottom:"12px"}}>🌿</div>
+          <div style={{fontFamily:F.serif,fontSize:"2rem",color:"white",fontWeight:700,lineHeight:1.2}}>Barbosa<br/>Garden Log</div>
+          <div style={{fontSize:"0.9rem",color:"rgba(255,255,255,0.45)",marginTop:"8px"}}>{mode==="signup"?"Create your account":mode==="reset"?"Reset your password":"Welcome back"}</div>
+        </div>
+        {error&&<div style={{background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:"10px",padding:"12px 14px",fontSize:"0.85rem",color:"#fca5a5"}}>{error}</div>}
+        {message&&<div style={{background:"rgba(34,197,94,0.12)",border:"1px solid rgba(34,197,94,0.3)",borderRadius:"10px",padding:"12px 14px",fontSize:"0.85rem",color:"#86efac"}}>{message}</div>}
+        <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email" type="email" inputMode="email" autoCapitalize="off" style={wi}/>
+        {mode!=="reset"&&<input value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password" type="password" style={wi}
+          onKeyDown={e=>{if(e.key==="Enter")handleSubmit();}}/>}
+        <button onClick={handleSubmit} disabled={loading||!email||(mode!=="reset"&&!password)} style={{background:C.green,color:"white",border:"none",borderRadius:"14px",padding:"16px",fontSize:"1rem",fontWeight:700,cursor:"pointer",opacity:(loading||!email||(mode!=="reset"&&!password))?0.5:1}}>
+          {loading?"…":mode==="signup"?"Create Account":mode==="reset"?"Send Reset Email":"Sign In"}
+        </button>
+        <div style={{display:"flex",flexDirection:"column",gap:"10px",alignItems:"center"}}>
+          {mode==="signin"&&<>
+            <button onClick={()=>{setMode("signup");setError("");setMessage("");}} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.5)",fontSize:"0.88rem",cursor:"pointer"}}>Don't have an account? <span style={{color:C.green,fontWeight:600}}>Sign up</span></button>
+            <button onClick={()=>{setMode("reset");setError("");setMessage("");}} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.3)",fontSize:"0.8rem",cursor:"pointer"}}>Forgot password?</button>
+          </>}
+          {mode==="signup"&&<button onClick={()=>{setMode("signin");setError("");setMessage("");}} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.5)",fontSize:"0.88rem",cursor:"pointer"}}>Already have an account? <span style={{color:C.green,fontWeight:600}}>Sign in</span></button>}
+          {mode==="reset"&&<button onClick={()=>{setMode("signin");setError("");setMessage("");}} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.5)",fontSize:"0.88rem",cursor:"pointer"}}>Back to sign in</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Wizard ─────────────────────────────────────────────────────
 function Wizard({onComplete}) {
   const [step,setStep]=useState(0);
@@ -310,7 +389,7 @@ function Wizard({onComplete}) {
 }
 
 // ── Settings Panel ─────────────────────────────────────────────
-function SettingsPanel({show,settings,locations,onSave,onClose}) {
+function SettingsPanel({show,settings,locations,user,syncing,onSave,onSignOut,onClose}) {
   const [name,setName]=useState("");
   const [zone,setZone]=useState("");
   const [zip,setZip]=useState("");
@@ -324,6 +403,20 @@ function SettingsPanel({show,settings,locations,onSave,onClose}) {
   return (
     <Panel show={show} onClose={onClose} title="Settings" footer={<Btn onClick={()=>onSave({gardenName:name.trim()||"My Garden",zone,zip:zip.trim()},locs)} disabled={!validZip}>Save Settings</Btn>}>
       <div style={{padding:"16px",display:"flex",flexDirection:"column",gap:"20px"}}>
+        {/* Account section */}
+        <div style={{background:"#f9fafb",borderRadius:"12px",padding:"14px",border:`1px solid ${C.border}`}}>
+          <div style={{fontSize:"0.7rem",fontWeight:700,color:C.textFaint,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:"8px"}}>Account</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"12px"}}>
+            <div>
+              <div style={{fontSize:"0.88rem",fontWeight:600,color:C.text}}>{user?.email}</div>
+              <div style={{fontSize:"0.72rem",color:C.textSub,marginTop:"2px",display:"flex",alignItems:"center",gap:"5px"}}>
+                <span style={{width:"6px",height:"6px",borderRadius:"50%",background:syncing?"#f59e0b":"#22c55e",display:"inline-block"}}/>
+                {syncing?"Syncing…":"Synced to cloud"}
+              </div>
+            </div>
+            <button onClick={onSignOut} style={{background:"transparent",border:`1.5px solid #fca5a5`,borderRadius:"8px",padding:"6px 14px",fontSize:"0.8rem",fontWeight:600,color:"#dc2626",cursor:"pointer",flexShrink:0}}>Sign Out</button>
+          </div>
+        </div>
         <Field label="Garden Name" value={name} onChange={e=>setName(e.target.value)} placeholder="My Garden" required/>
         <Field label="ZIP Code" value={zip} onChange={e=>setZip(e.target.value.replace(/\D/g,"").slice(0,5))} placeholder="e.g. 11565" required hint="Used for weather data"/>
         <SelectField label="Growing Zone (USDA)" value={zone} onChange={e=>setZone(e.target.value)} options={USDA_ZONES.map(z=>({value:z,label:`Zone ${z}`}))} placeholder="Select zone..."/>
@@ -1638,18 +1731,34 @@ function ReportPanel({show,crops,onRestore,onClose}) {
 
 // ── Main App ───────────────────────────────────────────────────
 function App() {
+  // ── Auth state ──────────────────────────────────────────────
+  const [user,setUser]=useState(null);
+  const [authLoading,setAuthLoading]=useState(true);
+  const [syncing,setSyncing]=useState(false);
+  const saveTimer=useRef(null);
+
+  // Check for existing session on mount
+  useEffect(()=>{
+    sb.auth.getSession().then(({data:{session}})=>{
+      setUser(session?.user||null);
+      setAuthLoading(false);
+    });
+    const {data:{subscription}}=sb.auth.onAuthStateChange((_event,session)=>{
+      setUser(session?.user||null);
+    });
+    return()=>subscription.unsubscribe();
+  },[]);
+
+  // ── Garden state ────────────────────────────────────────────
+  const [dbLoaded,setDbLoaded]=useState(false);
   const [settings,setSettings]   = useState(()=>ls.get("garden:settings",null));
   const [locations,setLocations] = useState(()=>ls.get("garden:locations",[]));
   const [crops,setCrops]         = useState(()=>{
     const raw=ls.get("garden:crops",[]);
-    // Migration: any crop with a numeric or missing ID gets a fresh unique string ID
-    // This prevents ID collisions from legacy data created before uid() was used
     const seen=new Set();
     return raw.map(c=>{
       let id=c.id;
-      if(typeof id!=="string"||!id.startsWith("crop_")||seen.has(id)){
-        id=uid("crop");
-      }
+      if(typeof id!=="string"||!id.startsWith("crop_")||seen.has(id)) id=uid("crop");
       seen.add(id);
       return {...c,id};
     });
@@ -1658,6 +1767,53 @@ function App() {
   const [nutrients,setNutrients] = useState(()=>ls.get("garden:nutrients",DEFAULT_NUTRIENTS));
   const [cropNames,setCropNames] = useState(()=>ls.get("garden:cropNames",DEFAULT_CROPS));
   const [varieties,setVarieties] = useState(()=>ls.get("garden:varieties",{}));
+
+  // Load from Supabase when user logs in
+  useEffect(()=>{
+    if(!user){setDbLoaded(false);return;}
+    setDbLoaded(false);
+    dbLoad(user.id).then(row=>{
+      if(row){
+        if(row.settings)  setSettings(row.settings);
+        if(row.locations) setLocations(row.locations);
+        if(row.crops){
+          const seen=new Set();
+          setCrops(row.crops.map(c=>{
+            let id=c.id;
+            if(typeof id!=="string"||!id.startsWith("crop_")||seen.has(id)) id=uid("crop");
+            seen.add(id);
+            return {...c,id};
+          }));
+        }
+        if(row.todos)      setTodos(row.todos);
+        if(row.nutrients)  setNutrients(row.nutrients);
+        if(row.crop_names) setCropNames(row.crop_names);
+        if(row.varieties)  setVarieties(row.varieties);
+      }
+      setDbLoaded(true);
+    });
+  },[user?.id]);
+
+  // Debounced Supabase save — fires 1.5s after last state change
+  const scheduleSave=useCallback((payload)=>{
+    if(!user) return;
+    clearTimeout(saveTimer.current);
+    saveTimer.current=setTimeout(()=>{
+      setSyncing(true);
+      dbSave(user.id,payload).finally(()=>setSyncing(false));
+    },1500);
+  },[user?.id]);
+
+  // Also always mirror to localStorage as offline cache
+  useEffect(()=>{if(settings){ls.set("garden:settings",settings);if(dbLoaded)scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties});}}, [settings]);
+  useEffect(()=>{ls.set("garden:locations",locations);if(dbLoaded)scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties});},[locations]);
+  useEffect(()=>{ls.set("garden:crops",crops);if(dbLoaded)scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties});},[crops]);
+  useEffect(()=>{ls.set("garden:todos",todos);if(dbLoaded)scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties});},[todos]);
+  useEffect(()=>{ls.set("garden:nutrients",nutrients);if(dbLoaded)scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties});},[nutrients]);
+  useEffect(()=>{ls.set("garden:cropNames",cropNames);if(dbLoaded)scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties});},[cropNames]);
+  useEffect(()=>{ls.set("garden:varieties",varieties);if(dbLoaded)scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties});},[varieties]);
+
+  // ── Weather ─────────────────────────────────────────────────
   const [weatherData,setWeatherData]=useState(null);
   const [weatherLocation,setWeatherLocation]=useState(null);
   const [weatherLoading,setWeatherLoading]=useState(false);
@@ -1672,7 +1828,6 @@ function App() {
       setWeatherLocation(geo);
       const raw=await fetchWeather(geo.lat,geo.lon);
       if(!raw){setWeatherError("Weather data unavailable — check connection");setWeatherLoading(false);return;}
-      // Index 0 = today in the daily array
       const today={
         date:raw.daily.time[0],
         currentTemp:raw.current.temperature_2m,
@@ -1683,7 +1838,6 @@ function App() {
         precipProb:raw.daily.precipitation_probability_max?.[0]||0,
         info:decodeWMO(raw.current.weather_code),
       };
-      // Remaining days = forecast
       const forecast=raw.daily.time.slice(1).map((d,i)=>({
         date:d,
         high:raw.daily.temperature_2m_max[i+1],
@@ -1700,14 +1854,6 @@ function App() {
 
   useEffect(()=>{ if(settings?.zip) loadWeather(settings.zip); },[settings?.zip]);
 
-  useEffect(()=>{if(settings)ls.set("garden:settings",settings);},[settings]);
-  useEffect(()=>{ls.set("garden:locations",locations);},[locations]);
-  useEffect(()=>{ls.set("garden:crops",crops);},[crops]);
-  useEffect(()=>{ls.set("garden:todos",todos);},[todos]);
-  useEffect(()=>{ls.set("garden:nutrients",nutrients);},[nutrients]);
-  useEffect(()=>{ls.set("garden:cropNames",cropNames);},[cropNames]);
-  useEffect(()=>{ls.set("garden:varieties",varieties);},[varieties]);
-
   const [view,setView]         = useState("dashboard");
   const [selLoc,setSelLoc]     = useState(null);
   const [selCrop,setSelCrop]   = useState(null);
@@ -1720,6 +1866,9 @@ function App() {
   const gardenName=settings?.gardenName||"My Garden";
   const zone=settings?.zone||"";
 
+  if(authLoading) return <div style={{width:"100%",height:"100%",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{fontSize:"2.5rem"}}>🌿</div></div>;
+  if(!user) return <AuthScreen onAuth={u=>setUser(u)}/>;
+  if(!dbLoaded) return <div style={{width:"100%",height:"100%",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"12px"}}><div style={{fontSize:"2.5rem"}}>🌿</div><div style={{fontSize:"0.85rem",color:"rgba(255,255,255,0.4)"}}>Loading your garden…</div></div>;
   if(!settings){
     return <Wizard onComplete={(s,addCrop)=>{setSettings(s);setLocations(s.locations);if(addCrop)setView("addCrop");}}/>;
   }
@@ -1950,7 +2099,9 @@ function App() {
       <WeatherPanel show={view==="weather"} weatherData={weatherData} location={weatherLocation} loading={weatherLoading} error={weatherError} onRefresh={()=>settings?.zip&&loadWeather(settings.zip)} onClose={()=>setView("dashboard")}/>
       <ReportPanel show={view==="report"} crops={crops} onRestore={restoreCrop} onClose={()=>setView("dashboard")}/>
       <SettingsPanel show={view==="settings"} settings={settings} locations={locations}
+        user={user} syncing={syncing}
         onSave={(s,locs)=>{setSettings(p=>({...p,...s}));setLocations(locs);setView("dashboard");}}
+        onSignOut={async()=>{await sb.auth.signOut();setUser(null);setDbLoaded(false);}}
         onClose={()=>setView("dashboard")}/>
     </div>
   );
