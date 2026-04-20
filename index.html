@@ -1552,14 +1552,32 @@ function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onClose
             </div>
             {today.feelsLike!=null&&<div style={{fontSize:"0.82rem",opacity:0.8,marginBottom:"10px"}}>Feels like {Math.round(today.feelsLike)}°</div>}
             <div style={{fontSize:"1rem",fontWeight:600,marginBottom:"14px"}}>{today.info.label}</div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:"8px",fontSize:"0.78rem"}}>
-              <div style={{background:"rgba(255,255,255,0.15)",borderRadius:"8px",padding:"5px 10px"}}>💧 {Math.round(today.humidity)}% humidity</div>
-              {today.dewPoint!=null&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"8px",padding:"5px 10px"}}>🌡 {Math.round(today.dewPoint)}° dew point</div>}
-              {today.wind!=null&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"8px",padding:"5px 10px"}}>💨 {Math.round(today.wind)} mph wind</div>}
-              {today.windGusts!=null&&today.windGusts>today.wind&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"8px",padding:"5px 10px"}}>💨 {Math.round(today.windGusts)} mph gusts</div>}
-              {today.uvIndex!=null&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"8px",padding:"5px 10px"}}>☀️ UV {Math.round(today.uvIndex)}{today.uvIndex>=8?" (very high)":today.uvIndex>=6?" (high)":today.uvIndex>=3?" (moderate)":""}</div>}
-              {today.precipProb>0&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"8px",padding:"5px 10px"}}>☔ {today.precipProb}% rain</div>}
-              {today.precip>0&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"8px",padding:"5px 10px"}}>{today.precip.toFixed(2)}" precip</div>}
+            {/* Clean 2-column grid for weather details */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginTop:"4px"}}>
+              <div style={{background:"rgba(255,255,255,0.15)",borderRadius:"10px",padding:"8px 12px"}}>
+                <div style={{fontSize:"0.65rem",opacity:0.7,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:"2px"}}>Humidity</div>
+                <div style={{fontSize:"0.95rem",fontWeight:600}}>{Math.round(today.humidity)}%</div>
+              </div>
+              {today.dewPoint!=null&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"10px",padding:"8px 12px"}}>
+                <div style={{fontSize:"0.65rem",opacity:0.7,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:"2px"}}>Dew Point</div>
+                <div style={{fontSize:"0.95rem",fontWeight:600}}>{Math.round(today.dewPoint)}°</div>
+              </div>}
+              {today.wind!=null&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"10px",padding:"8px 12px"}}>
+                <div style={{fontSize:"0.65rem",opacity:0.7,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:"2px"}}>Wind</div>
+                <div style={{fontSize:"0.95rem",fontWeight:600}}>{Math.round(today.wind)} mph</div>
+              </div>}
+              {today.windGusts!=null&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"10px",padding:"8px 12px"}}>
+                <div style={{fontSize:"0.65rem",opacity:0.7,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:"2px"}}>Gusts</div>
+                <div style={{fontSize:"0.95rem",fontWeight:600}}>{Math.round(today.windGusts)} mph</div>
+              </div>}
+              {today.uvIndex!=null&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"10px",padding:"8px 12px"}}>
+                <div style={{fontSize:"0.65rem",opacity:0.7,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:"2px"}}>UV Index</div>
+                <div style={{fontSize:"0.95rem",fontWeight:600}}>{Math.round(today.uvIndex)} <span style={{fontSize:"0.72rem",fontWeight:400,opacity:0.85}}>{today.uvIndex>=8?"Very High":today.uvIndex>=6?"High":today.uvIndex>=3?"Moderate":"Low"}</span></div>
+              </div>}
+              {today.precipProb>0&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"10px",padding:"8px 12px"}}>
+                <div style={{fontSize:"0.65rem",opacity:0.7,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:"2px"}}>Rain Chance</div>
+                <div style={{fontSize:"0.95rem",fontWeight:600}}>{today.precipProb}%{today.precip>0?` · ${today.precip.toFixed(2)}"`:""}</div>
+              </div>}
             </div>
           </div>
         )}
