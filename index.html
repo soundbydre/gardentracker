@@ -265,24 +265,32 @@ function AuthScreen({onAuth}) {
   const [message,setMessage]=useState("");
   const wi={width:"100%",padding:"14px 16px",borderRadius:"12px",border:"1.5px solid rgba(255,255,255,0.15)",background:"rgba(255,255,255,0.08)",color:"white",fontSize:"1rem",outline:"none",boxSizing:"border-box"};
 
+  const APP_URL = "https://soundbydre.github.io/gardentracker";
+
   async function handleSubmit() {
     setError(""); setMessage(""); setLoading(true);
     if(mode==="reset"){
-      const {error:e}=await sb.auth.resetPasswordForEmail(email,{redirectTo:window.location.href});
+      const {error:e}=await sb.auth.resetPasswordForEmail(email,{redirectTo:APP_URL});
       setLoading(false);
       if(e) setError(e.message);
       else setMessage("Check your email for a password reset link.");
       return;
     }
-    const fn=mode==="signup"?sb.auth.signUp.bind(sb.auth):sb.auth.signInWithPassword.bind(sb.auth);
-    const {data,error:e}=await fn({email,password});
-    setLoading(false);
-    if(e){setError(e.message);return;}
-    if(mode==="signup"&&!data.session){
-      setMessage("Check your email to confirm your account, then sign in.");
-      setMode("signin");
+    if(mode==="signup"){
+      const {data,error:e}=await sb.auth.signUp({email,password,options:{emailRedirectTo:APP_URL}});
+      setLoading(false);
+      if(e){setError(e.message);return;}
+      if(!data.session){
+        setMessage("Check your email to confirm your account, then sign in here.");
+        setMode("signin");
+        return;
+      }
+      if(data.session) onAuth(data.session.user);
       return;
     }
+    const {data,error:e}=await sb.auth.signInWithPassword({email,password});
+    setLoading(false);
+    if(e){setError(e.message);return;}
     if(data.session) onAuth(data.session.user);
   }
 
@@ -1737,14 +1745,21 @@ function App() {
   const [syncing,setSyncing]=useState(false);
   const saveTimer=useRef(null);
 
-  // Check for existing session on mount
+  // Check for existing session on mount — also handles email confirmation redirect
   useEffect(()=>{
+    // When Supabase redirects back after email confirmation, the token is in the URL hash.
+    // exchangeCodeForSession / getSession picks it up automatically in v2.
     sb.auth.getSession().then(({data:{session}})=>{
       setUser(session?.user||null);
       setAuthLoading(false);
+      // Clean the URL hash so it doesn't show on screen
+      if(window.location.hash&&window.location.hash.includes("access_token")){
+        window.history.replaceState(null,"",window.location.pathname);
+      }
     });
-    const {data:{subscription}}=sb.auth.onAuthStateChange((_event,session)=>{
+    const {data:{subscription}}=sb.auth.onAuthStateChange((event,session)=>{
       setUser(session?.user||null);
+      if(event==="SIGNED_IN") setAuthLoading(false);
     });
     return()=>subscription.unsubscribe();
   },[]);
