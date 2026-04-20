@@ -13,10 +13,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body, #root { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: "Figtree", sans-serif; }
-  body { background: #0e150e; }
-  input, select, button, textarea { font-family: "Figtree", sans-serif; }
-  button { cursor: pointer; }
+  html, body, #root { margin: 0; padding: 0; height: 100%; overflow: hidden; max-width: 100vw; font-family: "Figtree", sans-serif; }
+  body { background: #0e150e; overscroll-behavior: none; }
+  * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+  input, select, button, textarea { font-family: "Figtree", sans-serif; max-width: 100%; }
   ::-webkit-scrollbar { width: 3px; }
   ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 2px; }
   input:focus, select:focus, textarea:focus { outline: 2px solid #4ade80; outline-offset: -1px; }
@@ -177,18 +177,41 @@ function harvestTotal(crop) {
 const ls = { get:(k,fb)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):fb;}catch{return fb;}}, set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}} };
 
 // ── Shared UI Primitives ───────────────────────────────────────
-function Panel({show,onClose,title,children,footer}) {
+function Panel({show,onClose,title,children,footer,bottomBack}) {
   return (
     <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",flexDirection:"column",background:C.bgPanel,transform:show?"translateX(0)":"translateX(100%)",transition:"transform 0.28s cubic-bezier(0.32,0.72,0,1)"}}>
+      {/* Header — no back button when bottomBack is true */}
       <div style={{background:C.bg,paddingTop:"max(14px,env(safe-area-inset-top))",paddingBottom:"14px",paddingLeft:"16px",paddingRight:"16px",display:"flex",alignItems:"center",gap:"12px",flexShrink:0}}>
-        <button onClick={onClose} style={{background:"rgba(255,255,255,0.1)",border:"none",borderRadius:"10px",padding:"8px 14px",color:"white",fontSize:"0.85rem",fontWeight:600,display:"flex",alignItems:"center",gap:"6px",flexShrink:0}}>
+        {!bottomBack&&<button onClick={onClose} style={{background:"rgba(255,255,255,0.1)",border:"none",borderRadius:"10px",padding:"8px 14px",color:"white",fontSize:"0.85rem",fontWeight:600,display:"flex",alignItems:"center",gap:"6px",flexShrink:0}}>
           <span style={{fontSize:"1rem"}}>‹</span> Back
-        </button>
+        </button>}
+        {bottomBack&&<div style={{width:"70px"}}/>}
         <div style={{flex:1,fontSize:"1rem",fontWeight:700,color:"white",textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div>
         <div style={{width:"70px"}}/>
       </div>
-      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>{children}</div>
-      {footer&&<div style={{flexShrink:0,padding:"12px 16px",background:C.bgPanel,borderTop:`1px solid ${C.border}`,paddingBottom:"max(12px,calc(env(safe-area-inset-bottom)+8px))"}}>{footer}</div>}
+      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",overflowX:"hidden"}}>{children}</div>
+      {/* Footer area — back button on left, optional footer content on right */}
+      {(footer||bottomBack)&&(
+        <div style={{flexShrink:0,background:C.bgPanel,borderTop:`1px solid ${C.border}`,paddingBottom:"max(12px,calc(env(safe-area-inset-bottom)+8px))"}}>
+          {bottomBack&&footer?(
+            <div style={{display:"flex",alignItems:"center",gap:"10px",padding:"10px 16px"}}>
+              <button onClick={onClose} style={{background:"rgba(255,255,255,0.1)",border:"none",borderRadius:"12px",padding:"12px 18px",color:"white",fontSize:"0.88rem",fontWeight:600,display:"flex",alignItems:"center",gap:"6px",flexShrink:0}}>
+                <span style={{fontSize:"1.1rem"}}>‹</span> Back
+              </button>
+              <div style={{flex:1}}>{footer}</div>
+            </div>
+          ):bottomBack?(
+            <div style={{padding:"10px 16px"}}>
+              <button onClick={onClose} style={{background:"rgba(255,255,255,0.1)",border:"none",borderRadius:"12px",padding:"12px 18px",color:"white",fontSize:"0.88rem",fontWeight:600,display:"flex",alignItems:"center",gap:"6px"}}>
+                <span style={{fontSize:"1.1rem"}}>‹</span> Back
+              </button>
+            </div>
+          ):(
+            <div style={{padding:"12px 16px"}}>{footer}</div>
+          )}
+        </div>
+      )}
+      {!footer&&!bottomBack&&null}
     </div>
   );
 }
@@ -461,7 +484,7 @@ function SettingsPanel({show,settings,locations,user,syncing,onSave,onSignOut,on
 }
 
 // ── Crop Form Panel ────────────────────────────────────────────
-function CropFormPanel({show,initial,locations,cropNames,varieties,onSave,onClose}) {
+function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocation,onSave,onClose}) {
   const blank={name:"",variety:"",location:"",startType:null,seedDate:"",daysToMaturity:"",stage:"Seedling",successionDays:"",inContainer:false,containerSize:"",notes:[],harvests:[],feedLog:[],feedSchedules:{},stageHistory:[],waterLog:[],archived:false};
   const [f,setF]=useState(blank);
   const [locInput,setLocInput]=useState("");
@@ -500,7 +523,7 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,onSave,onClos
       }
       setF({...initial,startType,successionDays:initial.successionDays??"",containerSize:initial.containerSize||"",inContainer:!!initial.inContainer});
     } else {
-      setF({...blank,location:locations[0]||""});
+      setF({...blank,location:defaultLocation||locations[0]||""});
     }
     setErrors({});setShowNewLoc(false);setLocInput("");
   },[show,locations,initial]);
@@ -975,7 +998,7 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
 
   return(
     <>
-    <Panel show={show} onClose={onClose} title={`${crop.name}${crop.variety?` · ${crop.variety}`:""}`}>
+    <Panel show={show} onClose={onClose} title={`${crop.name}${crop.variety?` · ${crop.variety}`:""}`} bottomBack>
       <div style={{background:`linear-gradient(135deg,${acc.from},${acc.to})`,padding:"20px 20px 18px"}}>
         <div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.14em",color:"rgba(255,255,255,0.55)",textTransform:"uppercase",marginBottom:"5px"}}>{crop.name}</div>
         <div style={{fontFamily:F.serif,fontStyle:"italic",fontSize:"1.6rem",color:"white",lineHeight:1.2}}>{crop.variety||<span style={{opacity:0.5}}>No variety</span>}</div>
@@ -1324,8 +1347,13 @@ function CropCard({crop,onClick,onWater}) {
 // ── Location Panel ─────────────────────────────────────────────
 function LocationPanel({show,location,crops,onClose,onCropTap,onAddCrop,onWater}) {
   const locCrops=crops.filter(c=>!c.archived&&c.location===location);
+  const AddBtn=(
+    <button onClick={onAddCrop} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:"10px",width:"100%",padding:"13px",borderRadius:"14px",border:"none",background:C.green,color:"white",fontSize:"0.95rem",fontWeight:700,cursor:"pointer",boxShadow:"0 4px 14px rgba(34,197,94,0.3)"}}>
+      <span style={{fontSize:"1.3rem",lineHeight:1}}>+</span> Add Crop Here
+    </button>
+  );
   return(
-    <Panel show={show} onClose={onClose} title={location} footer={<button onClick={onAddCrop} style={{width:"100%",padding:"14px",borderRadius:"12px",border:`1.5px dashed ${C.green}`,background:"transparent",color:C.greenMid,fontSize:"0.95rem",fontWeight:700,cursor:"pointer"}}>+ Log Another Crop Here</button>}>
+    <Panel show={show} onClose={onClose} title={location} footer={AddBtn} bottomBack>
       <div style={{padding:"16px",display:"flex",flexDirection:"column",gap:"10px"}}>
         {locCrops.length===0&&<div style={{textAlign:"center",padding:"3rem 0",color:C.textFaint}}><div style={{fontSize:"2.5rem",marginBottom:"8px"}}>🌱</div><div style={{fontStyle:"italic",fontSize:"0.9rem"}}>Nothing logged here yet.</div></div>}
         {locCrops.map(crop=><CropCard key={crop.id} crop={crop} onClick={()=>onCropTap(crop)} onWater={onWater}/>)}
@@ -1410,7 +1438,16 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onClose
     return tasks.sort((a,b)=>({overdue:0,today:1,soon:2}[a.urgency]-{overdue:0,today:1,soon:2}[b.urgency]));
   }
   const tasks=genTasks();
-  const pending=todos.filter(t=>!t.done);
+  const pending=todos.filter(t=>!t.done).sort((a,b)=>{
+    // Both have dates — sort oldest first
+    if(a.due&&b.due) return a.due.localeCompare(b.due);
+    // Only a has date — a comes first
+    if(a.due&&!b.due) return -1;
+    // Only b has date — b comes first
+    if(!a.due&&b.due) return 1;
+    // Neither has date — keep insertion order
+    return 0;
+  });
   const done=todos.filter(t=>t.done);
   const uc={overdue:{bg:"#fffbeb",border:"#fcd34d",dot:"#f59e0b",text:"#92400e"},today:{bg:"#eff6ff",border:"#bfdbfe",dot:"#3b82f6",text:"#1e40af"},soon:{bg:"#f9fafb",border:C.border,dot:"#9ca3af",text:C.textSub}};
   const icon={feed:"🌿",harvest:"🌾",succession:"🌱"};
@@ -1434,12 +1471,18 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onClose
         )}
         <div>
           <SLabel>My Tasks</SLabel>
-          <div style={{display:"flex",gap:"8px",marginBottom:"10px",flexWrap:"wrap"}}>
-            <input value={text} onChange={e=>setText(e.target.value)} placeholder="Add a task..."
-              onKeyDown={e=>{if(e.key==="Enter"&&text.trim()){onAddTodo({id:nextTodo++,text:text.trim(),done:false,due:due||null});setText("");setDue("");}}}
-              style={{flex:1,minWidth:"160px",padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:"white",outline:"none"}}/>
-            <input type="date" value={due} onChange={e=>setDue(e.target.value)} style={{padding:"12px 10px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.85rem",background:"white",outline:"none",color:C.textSub}}/>
-            <button onClick={()=>{if(text.trim()){onAddTodo({id:nextTodo++,text:text.trim(),done:false,due:due||null});setText("");setDue("");}}} style={{background:C.green,color:"white",border:"none",borderRadius:"10px",padding:"12px 18px",fontWeight:700,fontSize:"0.9rem",cursor:"pointer"}}>Add</button>
+          <div style={{display:"flex",flexDirection:"column",gap:"8px",marginBottom:"10px"}}>
+            <div>
+              <div style={{fontSize:"0.72rem",fontWeight:600,color:C.textSub,marginBottom:"5px",letterSpacing:"0.04em",textTransform:"uppercase"}}>Task</div>
+              <input value={text} onChange={e=>setText(e.target.value)} placeholder="What needs to be done?"
+                onKeyDown={e=>{if(e.key==="Enter"&&text.trim()){onAddTodo({id:nextTodo++,text:text.trim(),done:false,due:due||null});setText("");setDue("");}}}
+                style={{width:"100%",padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:"white",outline:"none"}}/>
+            </div>
+            <div>
+              <div style={{fontSize:"0.72rem",fontWeight:600,color:C.textSub,marginBottom:"5px",letterSpacing:"0.04em",textTransform:"uppercase"}}>Finish By <span style={{fontWeight:400,color:C.textFaint}}>(optional)</span></div>
+              <input type="date" value={due} onChange={e=>setDue(e.target.value)} style={{width:"100%",padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:"white",outline:"none",color:due?C.text:C.textFaint}}/>
+            </div>
+            <button onClick={()=>{if(text.trim()){onAddTodo({id:nextTodo++,text:text.trim(),done:false,due:due||null});setText("");setDue("");}}} style={{background:C.green,color:"white",border:"none",borderRadius:"10px",padding:"13px",fontWeight:700,fontSize:"0.95rem",cursor:"pointer"}}>Add Task</button>
           </div>
           {pending.length===0&&tasks.length===0&&<div style={{textAlign:"center",padding:"1.5rem",color:C.textFaint,fontStyle:"italic",fontSize:"0.9rem"}}>You're all caught up!</div>}
           <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
@@ -2058,7 +2101,7 @@ function App() {
   return(
     <div style={{width:"100%",height:"100%",background:C.bg,color:"white",position:"relative",overflow:"hidden"}}>
       {/* Dashboard */}
-      <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",overflowY:"auto",WebkitOverflowScrolling:"touch",paddingBottom:"84px"}}>
+      <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",overflowY:"auto",overflowX:"hidden",WebkitOverflowScrolling:"touch",paddingBottom:"84px"}}>
         <div style={{padding:"max(16px,env(safe-area-inset-top)) 18px 18px",flexShrink:0}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div>
@@ -2120,7 +2163,7 @@ function App() {
         onAddFeed={logFeed} onEditFeed={editFeed} onDeleteFeed={deleteFeed} onAddNutrient={addNutrient}
         onTransplant={transplantCrop} onWater={waterCrop}/>
 
-      <CropFormPanel show={view==="addCrop"||view==="editCrop"} initial={view==="editCrop"?editCrop:null} locations={locations} cropNames={cropNames} varieties={varieties}
+      <CropFormPanel show={view==="addCrop"||view==="editCrop"} initial={view==="editCrop"?editCrop:null} locations={locations} cropNames={cropNames} varieties={varieties} defaultLocation={view==="addCrop"?selLoc:null}
         onSave={saveCrop} onClose={()=>setView(view==="editCrop"?"crop":(selLoc?"location":"dashboard"))}/>
 
       <TodoPanel show={view==="todo"} crops={crops} todos={todos} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} onClose={()=>setView("dashboard")}/>
