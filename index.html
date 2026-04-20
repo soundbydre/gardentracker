@@ -1,0 +1,1962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Garden Log</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body, #root { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: "Figtree", sans-serif; }
+  body { background: #0e150e; }
+  input, select, button, textarea { font-family: "Figtree", sans-serif; }
+  button { cursor: pointer; }
+  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 2px; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid #4ade80; outline-offset: -1px; }
+  .cb { width:22px; height:22px; border-radius:6px; border:2px solid #d1d5db; background:white; display:flex; align-items:center; justify-content:center; flex-shrink:0; cursor:pointer; transition:all 0.15s; }
+  .cb.checked { background:#22c55e; border-color:#22c55e; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+const { useState, useEffect, useRef } = React;
+
+// ── Design Tokens ──────────────────────────────────────────────
+const C = {
+  bg:'#0e150e', bgCard:'#182218', bgPanel:'#f5f4f1', bgSheet:'#ffffff',
+  green:'#22c55e', greenDark:'#166534', greenMid:'#15803d', greenFg:'#86efac',
+  amber:'#f59e0b', blue:'#3b82f6', purple:'#8b5cf6', red:'#ef4444',
+  text:'#111827', textSub:'#6b7280', textFaint:'#9ca3af',
+  border:'#e5e7eb', dashText:'#e8f5e9', dashSub:'rgba(232,245,233,0.45)',
+};
+const F = { sans:"'Figtree',sans-serif", serif:"'Playfair Display',serif" };
+
+const USDA_ZONES = ["1a","1b","2a","2b","3a","3b","4a","4b","5a","5b","6a","6b","7a","7b","8a","8b","9a","9b","10a","10b","11a","11b","12a","12b","13a","13b"];
+const STAGES = ["Seedling","Vegetative","Flowering","Fruiting","Harvesting","Done","Lost"];
+const STAGE_COLORS = {
+  Seedling:   {bg:"#dcfce7",text:"#14532d",dot:"#22c55e"},
+  Vegetative: {bg:"#d1fae5",text:"#064e3b",dot:"#10b981"},
+  Flowering:  {bg:"#fef3c7",text:"#78350f",dot:"#f59e0b"},
+  Fruiting:   {bg:"#fee2e2",text:"#7f1d1d",dot:"#ef4444"},
+  Harvesting: {bg:"#ede9fe",text:"#4c1d95",dot:"#8b5cf6"},
+  Done:       {bg:"#f3f4f6",text:"#6b7280",dot:"#9ca3af"},
+  Lost:       {bg:"#fef2f2",text:"#991b1b",dot:"#fca5a5"},
+};
+const CROP_ACCENTS = {
+  Tomato:{from:"#dc2626",to:"#991b1b"},   Pepper:{from:"#ea580c",to:"#c2410c"},
+  Onion:{from:"#ca8a04",to:"#a16207"},    Carrot:{from:"#f97316",to:"#c2410c"},
+  Spinach:{from:"#16a34a",to:"#15803d"},  Lettuce:{from:"#22c55e",to:"#15803d"},
+  Broccoli:{from:"#15803d",to:"#166534"}, Cucumber:{from:"#0d9488",to:"#0f766e"},
+  Squash:{from:"#d97706",to:"#b45309"},   Basil:{from:"#4d7c0f",to:"#3f6212"},
+  Kale:{from:"#166534",to:"#14532d"},     Bean:{from:"#65a30d",to:"#4d7c0f"},
+  Pea:{from:"#16a34a",to:"#15803d"},      Cannabis:{from:"#7c3aed",to:"#5b21b6"},
+  Hemp:{from:"#6d28d9",to:"#4c1d95"},
+};
+const HARVEST_UNITS = ["g","oz","lb","kg","count","bundle","ml","L","fl oz"];
+const DEFAULT_NUTRIENTS = ["Fish emulsion 2-3-1","Tomato tone 3-4-6","Kelp meal","Compost tea","Worm castings","Blood meal","Bone meal","Balanced 10-10-10"];
+const DEFAULT_CROPS = ["Tomato","Pepper","Cucumber","Lettuce","Spinach","Kale","Carrot","Onion","Garlic","Broccoli","Cauliflower","Cabbage","Bean","Pea","Squash","Zucchini","Pumpkin","Eggplant","Radish","Beet","Corn","Potato","Sweet Potato","Basil","Cilantro","Mint","Parsley","Dill","Rosemary","Thyme","Sage","Oregano","Chive","Arugula","Swiss Chard","Okra","Melon","Watermelon","Strawberry","Blueberry","Raspberry","Blackberry","Cannabis","Hemp"];
+// WMO weather interpretation codes from Open-Meteo
+const WMO_CODES = {
+  0:  {label:"Clear sky",             emoji:"☀️", desc:"Sunny and clear"},
+  1:  {label:"Mainly clear",          emoji:"🌤", desc:"Mostly sunny with a few clouds"},
+  2:  {label:"Partly cloudy",         emoji:"⛅", desc:"Mix of sun and clouds"},
+  3:  {label:"Overcast",              emoji:"☁️", desc:"Cloud-covered skies"},
+  45: {label:"Fog",                   emoji:"🌫", desc:"Foggy conditions"},
+  48: {label:"Depositing rime fog",   emoji:"🌫", desc:"Freezing fog"},
+  51: {label:"Light drizzle",         emoji:"🌦", desc:"Light drizzle"},
+  53: {label:"Moderate drizzle",      emoji:"🌦", desc:"Moderate drizzle"},
+  55: {label:"Dense drizzle",         emoji:"🌧", desc:"Heavy drizzle"},
+  56: {label:"Freezing drizzle",      emoji:"🌨", desc:"Freezing drizzle"},
+  57: {label:"Dense freezing drizzle",emoji:"🌨", desc:"Heavy freezing drizzle"},
+  61: {label:"Light rain",            emoji:"🌦", desc:"Light rain"},
+  63: {label:"Moderate rain",         emoji:"🌧", desc:"Steady rain"},
+  65: {label:"Heavy rain",            emoji:"🌧", desc:"Heavy rain"},
+  66: {label:"Light freezing rain",   emoji:"🌨", desc:"Freezing rain"},
+  67: {label:"Heavy freezing rain",   emoji:"🌨", desc:"Heavy freezing rain"},
+  71: {label:"Light snow",            emoji:"🌨", desc:"Light snow"},
+  73: {label:"Moderate snow",         emoji:"❄️", desc:"Steady snowfall"},
+  75: {label:"Heavy snow",            emoji:"❄️", desc:"Heavy snowfall"},
+  77: {label:"Snow grains",           emoji:"❄️", desc:"Snow grains"},
+  80: {label:"Light rain showers",    emoji:"🌦", desc:"Rain showers"},
+  81: {label:"Moderate rain showers", emoji:"🌧", desc:"Rain showers"},
+  82: {label:"Violent rain showers",  emoji:"⛈", desc:"Intense rain"},
+  85: {label:"Light snow showers",    emoji:"🌨", desc:"Light snow showers"},
+  86: {label:"Heavy snow showers",    emoji:"❄️", desc:"Heavy snow showers"},
+  95: {label:"Thunderstorm",          emoji:"⛈", desc:"Thunderstorms"},
+  96: {label:"Thunderstorm w/ hail",  emoji:"⛈", desc:"Thunderstorms with hail"},
+  99: {label:"Thunderstorm w/ hail",  emoji:"⛈", desc:"Severe thunderstorms with hail"},
+};
+function decodeWMO(code){ return WMO_CODES[code]||{label:"Unknown",emoji:"🌡",desc:""}; }
+
+// Geocode a US ZIP code -> {lat, lon, city, state}
+async function geocodeZip(zip) {
+  try {
+    const r = await fetch(`https://api.zippopotam.us/us/${zip}`);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const p = j.places?.[0]; if (!p) return null;
+    return {lat:Number(p.latitude),lon:Number(p.longitude),city:p["place name"],state:p["state abbreviation"]};
+  } catch { return null; }
+}
+
+// Fetch weather from Open-Meteo (current conditions + 7-day forecast)
+async function fetchWeather(lat, lon) {
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,precipitation&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,relative_humidity_2m_mean,precipitation_probability_max&temperature_unit=fahrenheit&precipitation_unit=inch&forecast_days=7&timezone=auto`;
+    const r = await fetch(url); if (!r.ok) return null;
+    return await r.json();
+  } catch { return null; }
+}
+
+// ── Helpers ────────────────────────────────────────────────────
+// Globally unique ID generator — safe across page reloads since it mixes timestamp with randomness
+function uid(prefix="id"){ return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,9)}`; }
+let nextTodo = 500;
+const cap = s => s ? s.charAt(0).toUpperCase()+s.slice(1) : s;
+const titleCase = s => s ? s.trim().toLowerCase().replace(/\b\w/g,c=>c.toUpperCase()).replace(/\s+/g," ") : s;
+// Schedule can be a bare number (legacy) or {days, qty, unit, water, waterUnit}. Returns the interval days.
+const scheduleDays = sched => typeof sched==="number" ? sched : (sched?.days || 0);
+const cropAccent = n => { const k=Object.keys(CROP_ACCENTS).find(k=>n?.toLowerCase().includes(k.toLowerCase())); return k?CROP_ACCENTS[k]:{from:"#4d7c0f",to:"#166534"}; };
+const daysAgo   = d => { if(!d) return null; return Math.floor((Date.now()-new Date(d))/864e5); };
+const daysUntil = d => { if(!d) return null; return Math.ceil((new Date(d)-Date.now())/864e5); };
+const weeksAgo  = d => { if(!d) return null; return Math.floor((Date.now()-new Date(d))/6048e5); };
+const todayStr  = () => new Date().toISOString().split("T")[0];
+const fmtDate   = d => { if(!d) return "—"; return new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); };
+const fmtShort  = d => { if(!d) return "—"; return new Date(d).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"}); };
+const fmtMon    = d => { if(!d) return "—"; return new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric"}); };
+const succDate  = (b,n) => { if(!b||!n) return null; const d=new Date(b); d.setDate(d.getDate()+Number(n)); return d.toISOString().split("T")[0]; };
+const harvestFmt= (tx,dtm) => { if(!tx||!dtm) return null; const d=new Date(tx); d.setDate(d.getDate()+Number(dtm)); return d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); };
+const daysSinceStage = crop => { if(!crop.stageHistory||!crop.stageHistory.length) return null; return daysAgo(crop.stageHistory[crop.stageHistory.length-1].date); };
+
+function hwStatus(crop) {
+  if(crop.stage==="Done"||crop.stage==="Lost") return null;
+  // Use transplant date when available for indoor/clone starts, else fall back to seed/start date.
+  const ref = crop.startType==="direct" ? crop.seedDate : (crop.transplantDate||crop.seedDate);
+  if(!ref||!crop.daysToMaturity) return null;
+  const mat=new Date(ref); mat.setDate(mat.getDate()+Number(crop.daysToMaturity));
+  const open=new Date(mat); open.setDate(open.getDate()-7);
+  const now=new Date();
+  return { inWindow:now>=open, daysToOpen:Math.ceil((open-now)/864e5),
+    daysInto:Math.max(0,Math.ceil((now-open)/864e5)), daysPastMat:Math.max(0,Math.ceil((now-mat)/864e5)),
+    openDate:open.toISOString().split("T")[0], matDate:mat.toISOString().split("T")[0] };
+}
+function harvestTotal(crop) {
+  if(!crop.harvests||!crop.harvests.length) return null;
+  const w=crop.harvests.filter(h=>h.amount&&h.unit); if(!w.length) return null;
+  const t={}; w.forEach(h=>{t[h.unit]=(t[h.unit]||0)+Number(h.amount);});
+  const d=Object.entries(t).sort((a,b)=>b[1]-a[1])[0];
+  return {value:Math.round(d[1]*100)/100,unit:d[0]};
+}
+const ls = { get:(k,fb)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):fb;}catch{return fb;}}, set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}} };
+
+// ── Shared UI Primitives ───────────────────────────────────────
+function Panel({show,onClose,title,children,footer}) {
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",flexDirection:"column",background:C.bgPanel,transform:show?"translateX(0)":"translateX(100%)",transition:"transform 0.28s cubic-bezier(0.32,0.72,0,1)"}}>
+      <div style={{background:C.bg,paddingTop:"max(14px,env(safe-area-inset-top))",paddingBottom:"14px",paddingLeft:"16px",paddingRight:"16px",display:"flex",alignItems:"center",gap:"12px",flexShrink:0}}>
+        <button onClick={onClose} style={{background:"rgba(255,255,255,0.1)",border:"none",borderRadius:"10px",padding:"8px 14px",color:"white",fontSize:"0.85rem",fontWeight:600,display:"flex",alignItems:"center",gap:"6px",flexShrink:0}}>
+          <span style={{fontSize:"1rem"}}>‹</span> Back
+        </button>
+        <div style={{flex:1,fontSize:"1rem",fontWeight:700,color:"white",textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div>
+        <div style={{width:"70px"}}/>
+      </div>
+      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>{children}</div>
+      {footer&&<div style={{flexShrink:0,padding:"12px 16px",background:C.bgPanel,borderTop:`1px solid ${C.border}`,paddingBottom:"max(12px,calc(env(safe-area-inset-bottom)+8px))"}}>{footer}</div>}
+    </div>
+  );
+}
+function Sheet({show,onClose,title,children}) {
+  if(!show) return null;
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:400,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
+      <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.5)"}}/>
+      <div onClick={e=>e.stopPropagation()} style={{position:"relative",background:C.bgSheet,borderRadius:"20px 20px 0 0",maxHeight:"92vh",display:"flex",flexDirection:"column",paddingBottom:"max(16px,env(safe-area-inset-bottom))"}}>
+        <div style={{display:"flex",justifyContent:"center",padding:"12px 0 0"}}><div style={{width:"36px",height:"4px",borderRadius:"2px",background:"#d1d5db"}}/></div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 20px 8px"}}>
+          <div style={{fontSize:"1.1rem",fontWeight:700,color:C.text}}>{title}</div>
+          <button onClick={onClose} style={{background:"#f3f4f6",border:"none",borderRadius:"50%",width:"32px",height:"32px",fontSize:"1.1rem",color:C.textSub,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+        </div>
+        <div style={{overflowY:"auto",flex:1,WebkitOverflowScrolling:"touch",padding:"0 20px 16px"}}>{children}</div>
+      </div>
+    </div>
+  );
+}
+function ConfirmSheet({show,title,message,confirmLabel,danger,onConfirm,onCancel}) {
+  if(!show) return null;
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:500,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={onCancel}>
+      <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.55)"}}/>
+      <div onClick={e=>e.stopPropagation()} style={{position:"relative",background:"white",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:"560px",padding:"24px 20px",paddingBottom:"max(24px,calc(env(safe-area-inset-bottom)+16px))"}}>
+        <div style={{fontSize:"1.1rem",fontWeight:700,color:C.text,marginBottom:"8px"}}>{title}</div>
+        <div style={{fontSize:"0.9rem",color:C.textSub,marginBottom:"24px",lineHeight:1.5}}>{message}</div>
+        <div style={{display:"flex",gap:"10px"}}>
+          <button onClick={onCancel} style={{flex:1,padding:"14px",borderRadius:"12px",border:`1.5px solid ${C.border}`,background:"white",fontSize:"0.95rem",fontWeight:600,color:C.textSub,cursor:"pointer"}}>Cancel</button>
+          <button onClick={onConfirm} style={{flex:1,padding:"14px",borderRadius:"12px",border:"none",background:danger?"#ef4444":"#111827",color:"white",fontSize:"0.95rem",fontWeight:700,cursor:"pointer"}}>{confirmLabel||"Confirm"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+function Pill({bg,color,children}) { return <span style={{background:bg,color,fontSize:"0.7rem",fontWeight:600,padding:"3px 9px",borderRadius:"20px",display:"inline-block",lineHeight:1.4,whiteSpace:"nowrap"}}>{children}</span>; }
+function SLabel({children,mt}) { return <div style={{fontSize:"0.7rem",fontWeight:700,color:C.textFaint,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:"8px",marginTop:mt||"4px"}}>{children}</div>; }
+function Btn({onClick,children,variant="primary",disabled}) {
+  const S={primary:{background:C.green,color:"white",border:"none"},secondary:{background:"#f3f4f6",color:C.text,border:"none"},ghost:{background:"transparent",color:C.greenMid,border:`1.5px solid ${C.green}`},danger:{background:"#fef2f2",color:C.red,border:"1.5px solid #fca5a5"}};
+  return <button onClick={onClick} disabled={disabled} style={{...S[variant],width:"100%",padding:"14px",borderRadius:"12px",fontSize:"0.95rem",fontWeight:700,cursor:"pointer",opacity:disabled?0.4:1}}>{children}</button>;
+}
+function Field({label,value,onChange,type="text",placeholder,hint,required,readOnly}) {
+  return (
+    <div>
+      {label&&<div style={{fontSize:"0.78rem",fontWeight:600,color:C.textSub,marginBottom:"6px"}}>{label}{required&&<span style={{color:C.red,marginLeft:"3px"}}>*</span>}</div>}
+      <input type={type} value={value} onChange={onChange} placeholder={placeholder} readOnly={readOnly}
+        style={{width:"100%",padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:readOnly?"#f9fafb":"white",outline:"none",boxSizing:"border-box"}}/>
+      {hint&&<div style={{fontSize:"0.72rem",color:C.textFaint,marginTop:"4px"}}>{hint}</div>}
+    </div>
+  );
+}
+function SelectField({label,value,onChange,options,placeholder,required}) {
+  return (
+    <div>
+      {label&&<div style={{fontSize:"0.78rem",fontWeight:600,color:C.textSub,marginBottom:"6px"}}>{label}{required&&<span style={{color:C.red,marginLeft:"3px"}}>*</span>}</div>}
+      <select value={value} onChange={onChange} style={{width:"100%",padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:"white",outline:"none",appearance:"none",backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E\")",backgroundRepeat:"no-repeat",backgroundPosition:"right 12px center",boxSizing:"border-box"}}>
+        {placeholder&&<option value="">{placeholder}</option>}
+        {options.map(o=>typeof o==="string"?<option key={o}>{o}</option>:<option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </div>
+  );
+}
+function StatTile({label,value}) {
+  return <div style={{background:"white",borderRadius:"12px",padding:"12px 14px",border:`1px solid ${C.border}`}}><div style={{fontSize:"0.7rem",fontWeight:600,color:C.textFaint,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:"3px"}}>{label}</div><div style={{fontSize:"1rem",fontWeight:700,color:C.text}}>{value}</div></div>;
+}
+
+// ── Wizard ─────────────────────────────────────────────────────
+function Wizard({onComplete}) {
+  const [step,setStep]=useState(0);
+  const [gardenName,setGardenName]=useState("");
+  const [zone,setZone]=useState("");
+  const [zip,setZip]=useState("");
+  const [locations,setLocations]=useState([]);
+  const [locInput,setLocInput]=useState("");
+  const [zipError,setZipError]=useState("");
+  const addLoc=()=>{const v=locInput.trim();if(v&&!locations.includes(v))setLocations(l=>[...l,v]);setLocInput("");};
+  const validZip=/^\d{5}$/.test(zip.trim());
+  const wi={width:"100%",padding:"14px 16px",borderRadius:"12px",border:"1.5px solid rgba(255,255,255,0.15)",background:"rgba(255,255,255,0.08)",color:"white",fontSize:"1rem",outline:"none",boxSizing:"border-box"};
+  const steps=[
+    <div key={0} style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",padding:"32px 28px",textAlign:"center",gap:"20px"}}>
+      <div style={{fontSize:"3.5rem"}}>🌿</div>
+      <div style={{fontFamily:F.serif,fontSize:"2rem",color:"white",fontWeight:700,lineHeight:1.2}}>Welcome to<br/>your garden.</div>
+      <div style={{fontSize:"0.95rem",color:"rgba(255,255,255,0.5)",lineHeight:1.6,maxWidth:"300px"}}>Let's take a minute to set things up. It only takes a moment.</div>
+      <button onClick={()=>setStep(1)} style={{background:C.green,color:"white",border:"none",borderRadius:"14px",padding:"16px 40px",fontSize:"1rem",fontWeight:700,cursor:"pointer",marginTop:"8px"}}>Get Started</button>
+    </div>,
+    <div key={1} style={{padding:"32px 28px",display:"flex",flexDirection:"column",gap:"20px"}}>
+      <div><div style={{fontFamily:F.serif,fontSize:"1.6rem",color:"white",fontWeight:700,marginBottom:"6px"}}>What do you call your garden?</div><div style={{fontSize:"0.9rem",color:"rgba(255,255,255,0.5)"}}>This appears at the top of the app.</div></div>
+      <input value={gardenName} onChange={e=>setGardenName(e.target.value)} placeholder="e.g. The Backyard, Grow Room 1, Rooftop Farm..." style={wi}/>
+      <button onClick={()=>setStep(2)} disabled={!gardenName.trim()} style={{background:C.green,color:"white",border:"none",borderRadius:"14px",padding:"16px",fontSize:"1rem",fontWeight:700,cursor:"pointer",opacity:gardenName.trim()?1:0.4}}>Continue</button>
+    </div>,
+    <div key={2} style={{padding:"32px 28px",display:"flex",flexDirection:"column",gap:"20px"}}>
+      <div><div style={{fontFamily:F.serif,fontSize:"1.6rem",color:"white",fontWeight:700,marginBottom:"6px"}}>Where are you growing?</div><div style={{fontSize:"0.9rem",color:"rgba(255,255,255,0.5)"}}>ZIP code is required for weather data. Growing zone is optional.</div></div>
+      <div>
+        <div style={{fontSize:"0.72rem",fontWeight:600,color:"rgba(255,255,255,0.6)",marginBottom:"6px",letterSpacing:"0.06em",textTransform:"uppercase"}}>ZIP Code <span style={{color:"#fca5a5"}}>*</span></div>
+        <input value={zip} onChange={e=>{setZip(e.target.value.replace(/\D/g,"").slice(0,5));setZipError("");}} placeholder="e.g. 11565" maxLength={5} inputMode="numeric" style={wi}/>
+        {zipError&&<div style={{fontSize:"0.78rem",color:"#fca5a5",marginTop:"6px"}}>{zipError}</div>}
+      </div>
+      <div>
+        <div style={{fontSize:"0.72rem",fontWeight:600,color:"rgba(255,255,255,0.6)",marginBottom:"6px",letterSpacing:"0.06em",textTransform:"uppercase"}}>USDA Zone (optional)</div>
+        <select value={zone} onChange={e=>setZone(e.target.value)} style={{...wi,appearance:"none",color:zone?"white":"rgba(255,255,255,0.4)"}}>
+          <option value="" style={{background:"#182218"}}>Select zone...</option>
+          {USDA_ZONES.map(z=><option key={z} value={z} style={{background:"#182218"}}>Zone {z}</option>)}
+        </select>
+      </div>
+      <button onClick={()=>{if(!validZip){setZipError("Please enter a valid 5-digit ZIP code");return;}setStep(3);}} disabled={!validZip} style={{background:C.green,color:"white",border:"none",borderRadius:"14px",padding:"16px",fontSize:"1rem",fontWeight:700,cursor:"pointer",opacity:validZip?1:0.4}}>Continue</button>
+    </div>,
+    <div key={3} style={{padding:"32px 28px",display:"flex",flexDirection:"column",gap:"16px"}}>
+      <div><div style={{fontFamily:F.serif,fontSize:"1.6rem",color:"white",fontWeight:700,marginBottom:"6px"}}>Where do you grow?</div><div style={{fontSize:"0.9rem",color:"rgba(255,255,255,0.5)"}}>Add your growing spots &#8212; beds, tents, rooms, containers. Add more later in Settings.</div></div>
+      <div style={{display:"flex",gap:"8px"}}>
+        <input value={locInput} onChange={e=>setLocInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addLoc();}} placeholder="e.g. Raised Bed 1, Grow Tent A..." style={{...wi,flex:1}}/>
+        <button onClick={addLoc} style={{background:C.green,color:"white",border:"none",borderRadius:"10px",padding:"14px 18px",fontWeight:700,fontSize:"0.9rem",cursor:"pointer",flexShrink:0}}>Add</button>
+      </div>
+      {locations.map((l,i)=>(
+        <div key={l} style={{display:"flex",alignItems:"center",background:"rgba(255,255,255,0.08)",borderRadius:"10px",padding:"12px 14px"}}>
+          <span style={{flex:1,color:"white",fontSize:"0.95rem"}}>📍 {l}</span>
+          <button onClick={()=>setLocations(ls=>ls.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.4)",fontSize:"1.1rem",cursor:"pointer"}}>×</button>
+        </div>
+      ))}
+      <button onClick={()=>setStep(4)} disabled={locations.length===0} style={{background:C.green,color:"white",border:"none",borderRadius:"14px",padding:"16px",fontSize:"1rem",fontWeight:700,cursor:"pointer",opacity:locations.length?1:0.4,marginTop:"4px"}}>Continue</button>
+    </div>,
+    <div key={4} style={{padding:"32px 28px",display:"flex",flexDirection:"column",alignItems:"center",gap:"20px",textAlign:"center"}}>
+      <div style={{fontSize:"2.5rem"}}>🌿</div>
+      <div style={{fontFamily:F.serif,fontSize:"1.6rem",color:"white",fontWeight:700}}>Ready to log your first crop?</div>
+      <div style={{fontSize:"0.9rem",color:"rgba(255,255,255,0.5)"}}>You can always do this from the dashboard.</div>
+      <div style={{display:"flex",flexDirection:"column",gap:"10px",width:"100%",maxWidth:"320px"}}>
+        <button onClick={()=>onComplete({gardenName:gardenName.trim(),zone,zip:zip.trim(),locations},true)} style={{background:C.green,color:"white",border:"none",borderRadius:"14px",padding:"16px",fontSize:"1rem",fontWeight:700,cursor:"pointer"}}>Yes, add a crop now</button>
+        <button onClick={()=>onComplete({gardenName:gardenName.trim(),zone,zip:zip.trim(),locations},false)} style={{background:"transparent",border:"1.5px solid rgba(255,255,255,0.2)",color:"rgba(255,255,255,0.7)",borderRadius:"14px",padding:"16px",fontSize:"1rem",fontWeight:600,cursor:"pointer"}}>Go to dashboard</button>
+      </div>
+    </div>,
+  ];
+  return (
+    <div style={{position:"fixed",inset:0,background:C.bg,display:"flex",flexDirection:"column",zIndex:1000}}>
+      {step>0&&step<5&&<div style={{display:"flex",gap:"6px",justifyContent:"center",padding:"max(20px,env(safe-area-inset-top)) 0 0"}}>{[1,2,3,4].map(i=><div key={i} style={{width:i<=step?"24px":"8px",height:"8px",borderRadius:"4px",background:i<=step?C.green:"rgba(255,255,255,0.15)",transition:"all 0.3s"}}/>)}</div>}
+      {step>0&&step<5&&<button onClick={()=>setStep(s=>Math.max(0,s-1))} style={{position:"absolute",top:"max(16px,env(safe-area-inset-top))",left:"16px",background:"rgba(255,255,255,0.08)",border:"none",borderRadius:"10px",padding:"8px 14px",color:"rgba(255,255,255,0.6)",fontSize:"0.85rem",fontWeight:600,zIndex:10,cursor:"pointer"}}>‹ Back</button>}
+      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",display:"flex",flexDirection:"column"}}>{steps[step]}</div>
+    </div>
+  );
+}
+
+// ── Settings Panel ─────────────────────────────────────────────
+function SettingsPanel({show,settings,locations,onSave,onClose}) {
+  const [name,setName]=useState("");
+  const [zone,setZone]=useState("");
+  const [zip,setZip]=useState("");
+  const [locs,setLocs]=useState([]);
+  const [newLoc,setNewLoc]=useState("");
+  const [editIdx,setEditIdx]=useState(null);
+  const [editVal,setEditVal]=useState("");
+  useEffect(()=>{if(show){setName(settings?.gardenName||"");setZone(settings?.zone||"");setZip(settings?.zip||"");setLocs(locations||[]);setEditIdx(null);}}, [show]);
+  const addLoc=()=>{const v=newLoc.trim();if(v&&!locs.includes(v))setLocs(l=>[...l,v]);setNewLoc("");};
+  const validZip=/^\d{5}$/.test(zip.trim());
+  return (
+    <Panel show={show} onClose={onClose} title="Settings" footer={<Btn onClick={()=>onSave({gardenName:name.trim()||"My Garden",zone,zip:zip.trim()},locs)} disabled={!validZip}>Save Settings</Btn>}>
+      <div style={{padding:"16px",display:"flex",flexDirection:"column",gap:"20px"}}>
+        <Field label="Garden Name" value={name} onChange={e=>setName(e.target.value)} placeholder="My Garden" required/>
+        <Field label="ZIP Code" value={zip} onChange={e=>setZip(e.target.value.replace(/\D/g,"").slice(0,5))} placeholder="e.g. 11565" required hint="Used for weather data"/>
+        <SelectField label="Growing Zone (USDA)" value={zone} onChange={e=>setZone(e.target.value)} options={USDA_ZONES.map(z=>({value:z,label:`Zone ${z}`}))} placeholder="Select zone..."/>
+        <div>
+          <SLabel>Locations</SLabel>
+          <div style={{display:"flex",flexDirection:"column",gap:"8px",marginBottom:"10px"}}>
+            {locs.map((l,i)=>(
+              <div key={i} style={{background:"white",borderRadius:"10px",padding:"12px 14px",border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:"10px"}}>
+                {editIdx===i?(
+                  <>
+                    <input value={editVal} onChange={e=>setEditVal(e.target.value)} autoFocus style={{flex:1,padding:"6px 10px",borderRadius:"8px",border:`1.5px solid ${C.green}`,fontSize:"0.9rem",outline:"none"}}/>
+                    <button onClick={()=>{if(editVal.trim())setLocs(ls=>ls.map((x,j)=>j===i?editVal.trim():x));setEditIdx(null);}} style={{background:C.green,color:"white",border:"none",borderRadius:"8px",padding:"6px 12px",fontWeight:700,fontSize:"0.85rem",cursor:"pointer"}}>Save</button>
+                    <button onClick={()=>setEditIdx(null)} style={{background:"transparent",border:"none",color:C.textFaint,cursor:"pointer",fontSize:"1rem"}}>✕</button>
+                  </>
+                ):(
+                  <>
+                    <span style={{flex:1,fontSize:"0.95rem",color:C.text}}>📍 {l}</span>
+                    <button onClick={()=>{setEditIdx(i);setEditVal(l);}} style={{background:"transparent",border:"none",color:C.textSub,cursor:"pointer",fontSize:"0.8rem",fontWeight:600}}>Edit</button>
+                    <button onClick={()=>setLocs(ls=>ls.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",color:"#fca5a5",cursor:"pointer",fontSize:"1rem"}}>×</button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:"8px"}}>
+            <input value={newLoc} onChange={e=>setNewLoc(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addLoc();}} placeholder="Add a location..."
+              style={{flex:1,padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:"white",outline:"none"}}/>
+            <button onClick={addLoc} style={{background:C.green,color:"white",border:"none",borderRadius:"10px",padding:"12px 18px",fontWeight:700,fontSize:"0.9rem",cursor:"pointer",flexShrink:0}}>Add</button>
+          </div>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+// ── Crop Form Panel ────────────────────────────────────────────
+function CropFormPanel({show,initial,locations,cropNames,varieties,onSave,onClose}) {
+  const blank={name:"",variety:"",location:"",startType:null,seedDate:"",daysToMaturity:"",stage:"Seedling",successionDays:"",inContainer:false,containerSize:"",notes:[],harvests:[],feedLog:[],feedSchedules:{},stageHistory:[],waterLog:[],archived:false};
+  const [f,setF]=useState(blank);
+  const [locInput,setLocInput]=useState("");
+  const [showNewLoc,setShowNewLoc]=useState(false);
+  const [locs,setLocs]=useState(locations);
+  const [errors,setErrors]=useState({});
+  const [showCropDrop,setShowCropDrop]=useState(false);
+  const [showVarDrop,setShowVarDrop]=useState(false);
+  // Clear error when a field is filled in
+  const set=(k,v)=>{
+    setF(p=>({...p,[k]:v}));
+    setErrors(e=>{
+      if(!e||Object.keys(e).length===0) return e;
+      const ne={...e};
+      if(k==="name"&&v&&v.trim()) delete ne.name;
+      if(k==="location"&&v) delete ne.location;
+      if(k==="startType"&&v) delete ne.startType;
+      if(k==="seedDate"&&v) delete ne.seedDate;
+      if(k==="daysToMaturity"&&v) delete ne.dtm;
+      if(k==="containerSize"&&v&&v.trim()) delete ne.cs;
+      if(k==="inContainer"&&!v) delete ne.cs;
+      return ne;
+    });
+  };
+  useEffect(()=>{
+    if(!show) return;
+    setLocs(locations);
+    if(initial){
+      // Preserve startType from existing crop. Handle legacy crops that may have 'directSown' instead.
+      let startType=initial.startType;
+      if(!startType){
+        if(initial.directSown===true||initial.directSown==="direct") startType="direct";
+        else if(initial.directSown===false||initial.directSown==="indoor") startType="indoor";
+        else if(initial.transplantDate) startType="indoor"; // transplanted = started elsewhere
+        else startType="direct"; // default fallback for very old records
+      }
+      setF({...initial,startType,successionDays:initial.successionDays??"",containerSize:initial.containerSize||"",inContainer:!!initial.inContainer});
+    } else {
+      setF({...blank,location:locations[0]||""});
+    }
+    setErrors({});setShowNewLoc(false);setLocInput("");
+  },[show,locations,initial]);
+  const acc=cropAccent(f.name);
+  const matPreview=f.seedDate&&f.daysToMaturity?harvestFmt(f.startType==="direct"?f.seedDate:(f.transplantDate||f.seedDate),f.daysToMaturity):null;
+  const chosen=f.startType!==null;
+  function validate(){
+    const e={};
+    if(!f.name.trim()) e.name=true;
+    if(!f.location) e.location=true;
+    if(!f.startType) e.startType=true;
+    if(!f.seedDate) e.seedDate=true;
+    if(!f.daysToMaturity) e.dtm=true;
+    if(f.inContainer&&!f.containerSize.trim()) e.cs=true;
+    setErrors(e); return Object.keys(e).length===0;
+  }
+  function handleSave(){
+    if(!validate()) return;
+    const now=todayStr();
+    const crop={...f,name:titleCase(f.name),variety:f.variety?titleCase(f.variety):"",successionDays:f.successionDays?Number(f.successionDays):null,daysToMaturity:Number(f.daysToMaturity),id:initial?.id||uid("crop"),
+      stageHistory:initial?.stageHistory||[{stage:f.stage||"Seedling",date:now}],waterLog:initial?.waterLog||[]};
+    onSave(crop,locs);
+  }
+  function addNewLocation(){const v=locInput.trim();if(v&&!locs.includes(v)){setLocs(l=>[...l,v]);set("location",v);}setLocInput("");setShowNewLoc(false);}
+  const startTypes=[
+    {val:"direct",label:"Direct Sown",sub:"Seeded directly into its final spot",icon:"🌱"},
+    {val:"indoor",label:"Started Indoors",sub:"Seeds started under lights or near a window",icon:"💡"},
+    {val:"clone",label:"Purchased / Clone",sub:"Seedling, clone, or transplant from elsewhere",icon:"✂"},
+  ];
+  const seedLabel=f.startType==="direct"?"Sow Date":f.startType==="clone"?"Date Acquired":"Seed Start Date";
+  const iS={width:"100%",padding:"12px 14px",borderRadius:"10px",fontSize:"0.95rem",background:"white",outline:"none",boxSizing:"border-box"};
+  return(
+    <Panel show={show} onClose={onClose} title={initial?"Edit Crop":"Add Crop"} footer={chosen?<Btn onClick={handleSave}>{initial?"Save Changes":"Add Crop"}</Btn>:null}>
+      <div style={{padding:"16px",display:"flex",flexDirection:"column",gap:"14px"}}>
+        {(f.name||f.variety)&&<div style={{background:`linear-gradient(135deg,${acc.from},${acc.to})`,borderRadius:"14px",padding:"16px"}}><div style={{fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.14em",color:"rgba(255,255,255,0.6)",textTransform:"uppercase",marginBottom:"4px"}}>{f.name||"Crop"}</div><div style={{fontFamily:F.serif,fontStyle:"italic",fontSize:"1.4rem",color:"white"}}>{f.variety||"Variety"}</div></div>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px"}}>
+          <div style={{position:"relative"}}>
+            <div style={{fontSize:"0.78rem",fontWeight:600,color:errors.name?"#ef4444":C.textSub,marginBottom:"6px"}}>Crop <span style={{color:C.red}}>*</span></div>
+            <input value={f.name} onChange={e=>{set("name",e.target.value);setShowCropDrop(true);}} onFocus={()=>setShowCropDrop(true)} onBlur={()=>setTimeout(()=>setShowCropDrop(false),180)} placeholder="e.g. Tomato" style={{...iS,border:`1.5px solid ${errors.name?"#fca5a5":C.border}`}}/>
+            {showCropDrop&&(() => {
+              const q=(f.name||"").trim().toLowerCase();
+              const available=(cropNames||[]).slice().sort((a,b)=>a.localeCompare(b));
+              const filtered=q?available.filter(n=>n.toLowerCase().includes(q)):available;
+              const exactMatch=q&&available.some(n=>n.toLowerCase()===q);
+              return(
+                <div style={{position:"absolute",top:"100%",left:0,right:0,background:"white",border:`1.5px solid ${C.border}`,borderRadius:"10px",boxShadow:"0 8px 24px rgba(0,0,0,0.12)",zIndex:50,maxHeight:"220px",overflowY:"auto",marginTop:"4px"}}>
+                  {q&&!exactMatch&&(
+                    <div onMouseDown={()=>{set("name",titleCase(f.name));setShowCropDrop(false);}} style={{padding:"10px 12px",cursor:"pointer",fontSize:"0.88rem",color:C.greenMid,fontWeight:600,background:"#f0fdf4",borderBottom:`1px solid ${C.border}`}}>+ Add "{titleCase(f.name)}"</div>
+                  )}
+                  {filtered.length===0&&!q&&<div style={{padding:"12px",fontSize:"0.82rem",color:C.textFaint,fontStyle:"italic"}}>Type to add a new crop</div>}
+                  {filtered.map(n=>(
+                    <div key={n} onMouseDown={()=>{set("name",n);setShowCropDrop(false);}} style={{padding:"10px 12px",cursor:"pointer",fontSize:"0.88rem",color:C.text,borderBottom:`1px solid #f9fafb`}}>{n}</div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+          <div style={{position:"relative"}}>
+            <div style={{fontSize:"0.78rem",fontWeight:600,color:C.textSub,marginBottom:"6px"}}>Variety</div>
+            <input value={f.variety} onChange={e=>{set("variety",e.target.value);setShowVarDrop(true);}} onFocus={()=>setShowVarDrop(true)} onBlur={()=>setTimeout(()=>setShowVarDrop(false),180)} placeholder="e.g. San Marzano" style={iS}/>
+            {showVarDrop&&(()=>{
+              const cn=titleCase(f.name||"");
+              const forCrop=(varieties&&varieties[cn])||[];
+              const q=(f.variety||"").trim().toLowerCase();
+              const filtered=q?forCrop.filter(v=>v.toLowerCase().includes(q)):forCrop;
+              const exactMatch=q&&forCrop.some(v=>v.toLowerCase()===q);
+              if(filtered.length===0&&!q) return null;
+              return(
+                <div style={{position:"absolute",top:"100%",left:0,right:0,background:"white",border:`1.5px solid ${C.border}`,borderRadius:"10px",boxShadow:"0 8px 24px rgba(0,0,0,0.12)",zIndex:50,maxHeight:"200px",overflowY:"auto",marginTop:"4px"}}>
+                  {q&&!exactMatch&&(
+                    <div onMouseDown={()=>{set("variety",titleCase(f.variety));setShowVarDrop(false);}} style={{padding:"10px 12px",cursor:"pointer",fontSize:"0.86rem",color:C.greenMid,fontWeight:600,background:"#f0fdf4",borderBottom:`1px solid ${C.border}`}}>+ Add "{titleCase(f.variety)}"</div>
+                  )}
+                  {filtered.map(v=>(
+                    <div key={v} onMouseDown={()=>{set("variety",v);setShowVarDrop(false);}} style={{padding:"10px 12px",cursor:"pointer",fontSize:"0.86rem",color:C.text,borderBottom:`1px solid #f9fafb`}}>{v}</div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+        <div>
+          <div style={{fontSize:"0.78rem",fontWeight:600,color:errors.startType?"#ef4444":C.textSub,marginBottom:"8px"}}>How is this crop starting? <span style={{color:C.red}}>*</span></div>
+          <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+            {startTypes.map(opt=>(
+              <div key={opt.val} onClick={()=>set("startType",opt.val)} style={{display:"flex",alignItems:"center",gap:"14px",background:f.startType===opt.val?"#f0fdf4":"white",borderRadius:"12px",padding:"14px 16px",border:`2px solid ${f.startType===opt.val?C.green:C.border}`,cursor:"pointer",userSelect:"none",transition:"all 0.15s"}}>
+                <span style={{fontSize:"1.5rem",flexShrink:0}} dangerouslySetInnerHTML={{__html:opt.icon}}/>
+                <div style={{flex:1}}><div style={{fontSize:"0.92rem",fontWeight:700,color:f.startType===opt.val?C.greenDark:C.text}}>{opt.label}</div><div style={{fontSize:"0.78rem",color:C.textSub,marginTop:"2px"}}>{opt.sub}</div></div>
+                {f.startType===opt.val&&<span style={{color:C.green,fontSize:"1.1rem"}}>✓</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+        {chosen&&(
+          <>
+            <div>
+              <div style={{fontSize:"0.78rem",fontWeight:600,color:errors.location?"#ef4444":C.textSub,marginBottom:"6px"}}>Current Location <span style={{color:C.red}}>*</span></div>
+              {!showNewLoc?(
+                <div style={{display:"flex",gap:"8px"}}>
+                  <select value={f.location} onChange={e=>set("location",e.target.value)} style={{...iS,flex:1,border:`1.5px solid ${errors.location?"#fca5a5":C.border}`,appearance:"none",backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E\")",backgroundRepeat:"no-repeat",backgroundPosition:"right 12px center"}}>
+                    {locs.length===0&&<option value="">No locations &#8212; add one</option>}
+                    {locs.map(l=><option key={l}>{l}</option>)}
+                  </select>
+                  <button onClick={()=>setShowNewLoc(true)} style={{background:"#f3f4f6",border:"none",borderRadius:"10px",padding:"12px 14px",fontSize:"0.85rem",fontWeight:600,color:C.textSub,cursor:"pointer",flexShrink:0}}>+ New</button>
+                </div>
+              ):(
+                <div style={{display:"flex",gap:"8px"}}>
+                  <input value={locInput} onChange={e=>setLocInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addNewLocation();}} autoFocus placeholder="Location name..." style={{...iS,flex:1,border:`1.5px solid ${C.green}`}}/>
+                  <button onClick={addNewLocation} style={{background:C.green,color:"white",border:"none",borderRadius:"10px",padding:"12px 16px",fontWeight:700,fontSize:"0.9rem",cursor:"pointer"}}>Add</button>
+                  <button onClick={()=>{setShowNewLoc(false);setLocInput("");}} style={{background:"transparent",border:"none",color:C.textFaint,cursor:"pointer",fontSize:"1rem",padding:"0 4px"}}>✕</button>
+                </div>
+              )}
+            </div>
+            <SelectField label="Stage" value={f.stage} onChange={e=>set("stage",e.target.value)} options={STAGES} required/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px"}}>
+              <div>
+                <div style={{fontSize:"0.78rem",fontWeight:600,color:errors.seedDate?"#ef4444":C.textSub,marginBottom:"6px"}}>{seedLabel} <span style={{color:C.red}}>*</span></div>
+                <input type="date" value={f.seedDate} onChange={e=>set("seedDate",e.target.value)} style={{...iS,border:`1.5px solid ${errors.seedDate?"#fca5a5":C.border}`}}/>
+              </div>
+              <div>
+                <div style={{fontSize:"0.78rem",fontWeight:600,color:errors.dtm?"#ef4444":C.textSub,marginBottom:"6px"}}>Days to Maturity <span style={{color:C.red}}>*</span></div>
+                <input type="number" value={f.daysToMaturity} onChange={e=>set("daysToMaturity",e.target.value)} placeholder="e.g. 85" style={{...iS,border:`1.5px solid ${errors.dtm?"#fca5a5":C.border}`}}/>
+              </div>
+            </div>
+            {matPreview&&<div style={{background:"#faf5ff",borderRadius:"10px",padding:"10px 14px",border:"1px solid #e9d5ff",fontSize:"0.82rem",color:"#6d28d9",fontWeight:500}}>🌾 Est. harvest: {matPreview} &#8212; window opens 7 days before</div>}
+            <div>
+              <div onClick={()=>set("inContainer",!f.inContainer)} style={{display:"flex",alignItems:"center",gap:"12px",padding:"12px 14px",background:f.inContainer?"#eff6ff":"#f9fafb",borderRadius:"10px",border:`1.5px solid ${f.inContainer?"#93c5fd":C.border}`,cursor:"pointer",userSelect:"none"}}>
+                <div className={`cb ${f.inContainer?"checked":""}`}>{f.inContainer&&<span style={{color:"white",fontSize:"0.8rem"}}>✓</span>}</div>
+                <div><div style={{fontSize:"0.92rem",fontWeight:600,color:C.text}}>Growing in a container</div><div style={{fontSize:"0.78rem",color:C.textSub}}>Pot, bucket, bag, DWC, etc.</div></div>
+              </div>
+              {f.inContainer&&<div style={{marginTop:"10px"}}>
+                <div style={{fontSize:"0.78rem",fontWeight:600,color:errors.cs?"#ef4444":C.textSub,marginBottom:"6px"}}>Container size / type <span style={{color:C.red}}>*</span></div>
+                <input value={f.containerSize} onChange={e=>set("containerSize",e.target.value)} placeholder="e.g. 5 gallon fabric pot, 20L DWC..." style={{...iS,border:`1.5px solid ${errors.cs?"#fca5a5":C.border}`}}/>
+              </div>}
+            </div>
+            <div style={{background:"#f0fdf4",border:"1.5px solid #bbf7d0",borderRadius:"14px",padding:"14px"}}>
+              <div style={{fontSize:"0.8rem",fontWeight:700,color:C.greenMid,marginBottom:"10px"}}>🌱 Succession Planting <span style={{fontWeight:400,color:C.textSub}}>(optional)</span></div>
+              <Field label="Days Between Sowings" value={f.successionDays} onChange={e=>set("successionDays",e.target.value)} type="number" placeholder="Leave blank to skip"/>
+              {f.successionDays&&f.seedDate&&<div style={{marginTop:"8px",background:"#dcfce7",borderRadius:"8px",padding:"8px 12px",fontSize:"0.8rem",color:C.greenDark,fontWeight:500}}>Next sow: {fmtDate(succDate(f.seedDate,f.successionDays))}</div>}
+            </div>
+            {/* Feeding Schedules (edit mode only, shows when nutrient schedules exist) */}
+            {Object.keys(f.feedSchedules||{}).length>0&&(
+              <div style={{background:"white",border:`1.5px solid ${C.border}`,borderRadius:"14px",padding:"14px"}}>
+                <div style={{fontSize:"0.8rem",fontWeight:700,color:C.text,marginBottom:"10px"}}>🌿 Feeding Schedules</div>
+                <div style={{fontSize:"0.75rem",color:C.textSub,marginBottom:"12px"}}>Adjust how often each nutrient is applied, edit defaults, or remove a schedule.</div>
+                <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
+                  {Object.entries(f.feedSchedules||{}).map(([nutrient,sched])=>{
+                    // sched is either a number (legacy) or an object: {days, qty, unit, water, waterUnit}
+                    const s=typeof sched==="number"?{days:sched}:(sched||{});
+                    const days=s.days||"";
+                    // Fall back to most recent feed log entry for defaults when not in schedule
+                    const last=[...(f.feedLog||[])].reverse().find(fe=>fe.nutrient===nutrient);
+                    const qty=s.qty!==undefined?s.qty:(last?.qty?last.qty.split(" ")[0]:"");
+                    const qtyUnit=s.unit!==undefined?s.unit:(last?.qty?last.qty.split(" ").slice(1).join(" "):"tbsp");
+                    const water=s.water!==undefined?s.water:(last?.water?last.water.split(" ")[0]:"");
+                    const waterUnit=s.waterUnit!==undefined?s.waterUnit:(last?.water?last.water.split(" ").slice(1).join(" "):"gal");
+                    const isDiluted=!!water;
+                    const UNITS=["tsp","tbsp","cup","fl oz","ml","L","oz","lb","g"];
+                    const WUNITS=["fl oz","cup","pt","qt","gal","ml","L"];
+                    const updateSchedule=(patch)=>{
+                      const ns={...(f.feedSchedules||{})};
+                      ns[nutrient]={days:Number(days)||s.days||7,qty,unit:qtyUnit,water,waterUnit,...patch};
+                      setF(p=>({...p,feedSchedules:ns}));
+                    };
+                    return(
+                      <div key={nutrient} style={{background:"#f9fafb",borderRadius:"10px",padding:"12px",border:`1px solid ${C.border}`}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}}>
+                          <div style={{fontSize:"0.9rem",fontWeight:700,color:C.text,flex:1,minWidth:0}}>{nutrient}</div>
+                          <button onClick={()=>{
+                            const ns={...(f.feedSchedules||{})};
+                            delete ns[nutrient];
+                            setF(p=>({...p,feedSchedules:ns}));
+                          }} style={{background:"transparent",border:"none",color:"#dc2626",fontSize:"0.72rem",fontWeight:600,cursor:"pointer",padding:"2px 6px",flexShrink:0}}>Remove</button>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:"8px",marginBottom:"10px"}}>
+                          <span style={{fontSize:"0.78rem",color:C.textSub,whiteSpace:"nowrap"}}>Every</span>
+                          <input type="number" min="1" step="1" value={days} onChange={e=>updateSchedule({days:e.target.value?Number(e.target.value):1})} style={{width:"70px",padding:"8px 10px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.88rem",outline:"none",textAlign:"center"}}/>
+                          <span style={{fontSize:"0.78rem",color:C.textSub}}>days</span>
+                        </div>
+                        <div style={{marginBottom:"8px"}}>
+                          <div style={{fontSize:"0.7rem",fontWeight:600,color:C.textSub,marginBottom:"4px",letterSpacing:"0.04em",textTransform:"uppercase"}}>Default Amount</div>
+                          <div style={{display:"flex",gap:"6px"}}>
+                            <input type="number" min="0" step="any" value={qty} onChange={e=>updateSchedule({qty:e.target.value})} placeholder="Qty" style={{flex:1,padding:"8px 10px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.88rem",outline:"none"}}/>
+                            <select value={qtyUnit} onChange={e=>updateSchedule({unit:e.target.value})} style={{padding:"8px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.85rem",background:"white"}}>
+                              {UNITS.map(u=><option key={u}>{u}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <div onClick={()=>updateSchedule({water:isDiluted?"":(water||"1"),waterUnit:waterUnit||"gal"})} style={{display:"flex",alignItems:"center",gap:"10px",padding:"8px 10px",background:isDiluted?"#eff6ff":"white",borderRadius:"8px",border:`1.5px solid ${isDiluted?"#93c5fd":C.border}`,cursor:"pointer",userSelect:"none",marginBottom:isDiluted?"8px":"0"}}>
+                            <div className={`cb ${isDiluted?"checked":""}`}>{isDiluted&&<span style={{color:"white",fontSize:"0.72rem"}}>✓</span>}</div>
+                            <span style={{fontSize:"0.82rem",color:C.text,fontWeight:500}}>Diluted in water</span>
+                          </div>
+                          {isDiluted&&(
+                            <div style={{display:"flex",gap:"6px"}}>
+                              <input type="number" min="0" step="any" value={water} onChange={e=>updateSchedule({water:e.target.value})} placeholder="Amount" style={{flex:1,padding:"8px 10px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.88rem",outline:"none"}}/>
+                              <select value={waterUnit} onChange={e=>updateSchedule({waterUnit:e.target.value})} style={{padding:"8px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.85rem",background:"white"}}>
+                                {WUNITS.map(u=><option key={u}>{u}</option>)}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {Object.keys(errors).length>0&&<div style={{fontSize:"0.82rem",color:C.red,background:"#fef2f2",borderRadius:"10px",padding:"10px 14px",border:"1px solid #fca5a5"}}>Please fill in all required fields marked with *</div>}
+          </>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+// ── Harvest Log Sheet ──────────────────────────────────────────
+function HarvestLogSheet({show,crop,onLog,onClose}) {
+  const [amount,setAmount]=useState("");
+  const [unit,setUnit]=useState("g");
+  const [note,setNote]=useState("");
+  function submit(){if(!amount&&!note)return;onLog(crop.id,{amount:amount?Number(amount):null,unit:amount?unit:null,note:note||null});setAmount("");setNote("");onClose();}
+  const total=harvestTotal(crop);
+  return(
+    <Sheet show={show} onClose={onClose} title="Log Harvest">
+      <div style={{display:"flex",flexDirection:"column",gap:"14px",paddingTop:"8px"}}>
+        {total&&<div style={{background:"#f0fdf4",borderRadius:"10px",padding:"10px 14px",border:"1px solid #bbf7d0",fontSize:"0.85rem",color:C.greenDark,fontWeight:500}}>Total harvested: {total.value} {total.unit}</div>}
+        <div>
+          <div style={{fontSize:"0.78rem",fontWeight:600,color:C.textSub,marginBottom:"6px"}}>Amount <span style={{color:C.textFaint,fontWeight:400}}>(optional)</span></div>
+          <div style={{display:"flex",gap:"8px"}}>
+            <input type="number" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="e.g. 250" style={{flex:1,padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:"white",outline:"none"}}/>
+            <select value={unit} onChange={e=>setUnit(e.target.value)} style={{padding:"12px 10px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.9rem",background:"white",outline:"none",color:C.text}}>{HARVEST_UNITS.map(u=><option key={u}>{u}</option>)}</select>
+          </div>
+        </div>
+        <Field label="Notes" value={note} onChange={e=>setNote(e.target.value)} placeholder="Description, quality, notes..."/>
+        <Btn onClick={submit} disabled={!amount&&!note}>Save Harvest</Btn>
+        {(crop?.harvests||[]).length>0&&<div style={{marginTop:"4px"}}><SLabel>Harvest History</SLabel><div style={{display:"flex",flexDirection:"column",gap:"6px"}}>{[...(crop.harvests||[])].reverse().slice(0,5).map((h,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"10px 12px",background:"#f9fafb",borderRadius:"10px"}}><div>{h.amount&&<span style={{fontSize:"0.88rem",fontWeight:700,color:C.text}}>{h.amount} {h.unit} </span>}{h.note&&<span style={{fontSize:"0.85rem",color:C.textSub}}>{h.note}</span>}</div><span style={{fontSize:"0.72rem",color:C.textFaint,flexShrink:0}}>{fmtDate(h.date)}</span></div>)}</div></div>}
+      </div>
+    </Sheet>
+  );
+}
+
+// ── Feed Log Sheet ─────────────────────────────────────────────
+function FeedLogSheet({show,crop,allCrops,nutrients,onAddNutrient,onAddFeed,onEditFeed,onDeleteFeed,onClose}) {
+  const [input,setInput]=useState("");
+  const [qty,setQty]=useState("");
+  const [unit,setUnit]=useState("tbsp");
+  const [isLiquid,setIsLiquid]=useState(false);
+  const [waterQty,setWaterQty]=useState("");
+  const [waterUnit,setWaterUnit]=useState("gal");
+  const [showDrop,setShowDrop]=useState(false);
+  const [askInterval,setAskInterval]=useState(false);
+  const [intervalDays,setIntervalDays]=useState("");
+  const UNITS=["tsp","tbsp","cup","fl oz","ml","L","oz","lb","g"];
+  const WUNITS=["fl oz","cup","pt","qt","gal","ml","L"];
+  const schedules=crop?.feedSchedules||{};
+
+  // Smart ordering: rank by usage count (desc), tiebreak by user-added (after defaults) first
+  const usageCounts={};
+  (crop?.feedLog||[]).forEach(f=>{if(f.nutrient) usageCounts[f.nutrient]=(usageCounts[f.nutrient]||0)+1;});
+  const stockSet=new Set(DEFAULT_NUTRIENTS.map(n=>n.toLowerCase()));
+  const rankedNutrients=[...nutrients].sort((a,b)=>{
+    const ua=usageCounts[a]||0, ub=usageCounts[b]||0;
+    if(ua!==ub) return ub-ua;
+    const uaStock=stockSet.has(a.toLowerCase()), ubStock=stockSet.has(b.toLowerCase());
+    if(uaStock!==ubStock) return uaStock?1:-1; // user-added first when usage ties
+    return a.localeCompare(b);
+  });
+  const filtered=rankedNutrients.filter(n=>n.toLowerCase().includes(input.toLowerCase()));
+
+  function reset(){setInput("");setQty("");setIsLiquid(false);setWaterQty("");setShowDrop(false);setAskInterval(false);setIntervalDays("");}
+  // Auto-fill most common qty/unit/dilution for this nutrient across all crops
+  function selectN(n){
+    setInput(n);
+    setShowDrop(false);
+    // Scan all feed logs across all crops for this nutrient to find defaults
+    const allFeeds=(allCrops||[]).flatMap(c=>c.feedLog||[]).filter(f=>f.nutrient===n);
+    if(!allFeeds.length) return;
+    // Most common qty (full string like "2 tbsp")
+    const qtyCounts={};
+    allFeeds.forEach(f=>{if(f.qty) qtyCounts[f.qty]=(qtyCounts[f.qty]||0)+1;});
+    const topQty=Object.entries(qtyCounts).sort((a,b)=>b[1]-a[1])[0];
+    if(topQty){
+      const parts=topQty[0].split(" ");
+      if(parts.length>=2){
+        setQty(parts[0]);
+        setUnit(parts.slice(1).join(" "));
+      }
+    }
+    // Most common water (full string like "1 gal")
+    const waterCounts={};
+    allFeeds.forEach(f=>{if(f.water) waterCounts[f.water]=(waterCounts[f.water]||0)+1;});
+    const topWater=Object.entries(waterCounts).sort((a,b)=>b[1]-a[1])[0];
+    // Most common dilution state (was more than half of uses diluted?)
+    const dilutedCount=allFeeds.filter(f=>f.water).length;
+    const wasOftenDiluted=dilutedCount>allFeeds.length/2;
+    if(wasOftenDiluted&&topWater){
+      setIsLiquid(true);
+      const wparts=topWater[0].split(" ");
+      if(wparts.length>=2){
+        setWaterQty(wparts[0]);
+        setWaterUnit(wparts.slice(1).join(" "));
+      }
+    } else {
+      setIsLiquid(false);
+      setWaterQty("");
+    }
+  }
+  function submit(){
+    const name=titleCase(input.trim()); if(!name) return;
+    if(!nutrients.map(n=>n.toLowerCase()).includes(name.toLowerCase())) onAddNutrient(name);
+    if(!schedules[name]){setAskInterval(true);return;}
+    onAddFeed(crop.id,name,qty?`${qty} ${unit}`:null,(isLiquid&&waterQty)?`${waterQty} ${waterUnit}`:null,null);
+    reset();onClose();
+  }
+  function submitWithInterval(){
+    const name=titleCase(input.trim());
+    onAddFeed(crop.id,name,qty?`${qty} ${unit}`:null,(isLiquid&&waterQty)?`${waterQty} ${waterUnit}`:null,intervalDays?Number(intervalDays):null);
+    reset();onClose();
+  }
+  if(askInterval){
+    const name=titleCase(input.trim());
+    return(
+      <Sheet show={show} onClose={()=>{reset();onClose();}} title="Set Feeding Schedule">
+        <div style={{display:"flex",flexDirection:"column",gap:"16px",paddingTop:"8px"}}>
+          <div style={{background:"#f0fdf4",borderRadius:"12px",padding:"14px",border:"1px solid #bbf7d0"}}>
+            <div style={{fontSize:"0.88rem",fontWeight:700,color:C.greenDark,marginBottom:"4px"}}>{name}</div>
+            <div style={{fontSize:"0.9rem",color:C.textSub,lineHeight:1.5}}>First time logging this on <strong>{crop?.name}{crop?.variety?` (${crop.variety})`:""}</strong>. How often do you plan to use it on this crop?</div>
+          </div>
+          <Field label="Feed every (days)" value={intervalDays} onChange={e=>setIntervalDays(e.target.value)} type="number" placeholder="e.g. 7" hint="You can update this any time"/>
+          <Btn onClick={submitWithInterval} disabled={!intervalDays}>Set Schedule &amp; Save</Btn>
+          <button onClick={()=>{onAddFeed(crop.id,titleCase(input.trim()),qty?`${qty} ${unit}`:null,(isLiquid&&waterQty)?`${waterQty} ${waterUnit}`:null,null);reset();onClose();}} style={{background:"white",border:`1.5px solid ${C.border}`,borderRadius:"12px",color:C.text,fontSize:"0.92rem",fontWeight:600,cursor:"pointer",padding:"12px",width:"100%"}}>Save without a schedule</button>
+        </div>
+      </Sheet>
+    );
+  }
+  const iStyle={padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:"white",outline:"none"};
+  return(
+    <Sheet show={show} onClose={()=>{reset();onClose();}} title="Log Feed">
+      <div style={{display:"flex",flexDirection:"column",gap:"14px",paddingTop:"8px"}}>
+        <div style={{position:"relative"}}>
+          <div style={{fontSize:"0.78rem",fontWeight:600,color:C.textSub,marginBottom:"6px"}}>Nutrient / Fertilizer</div>
+          <input value={input} onChange={e=>{setInput(e.target.value);setShowDrop(true);}} onFocus={()=>setShowDrop(true)} onBlur={()=>setTimeout(()=>setShowDrop(false),180)} placeholder="Type or choose..." style={{...iStyle,width:"100%"}}/>
+          {showDrop&&<div style={{position:"absolute",top:"100%",left:0,right:0,background:"white",border:`1.5px solid ${C.border}`,borderRadius:"10px",boxShadow:"0 8px 24px rgba(0,0,0,0.12)",zIndex:50,maxHeight:"240px",overflowY:"auto",marginTop:"4px"}}>
+            {input.trim()&&!nutrients.map(n=>n.toLowerCase()).includes(input.trim().toLowerCase())&&<div onMouseDown={()=>selectN(titleCase(input.trim()))} style={{padding:"12px 14px",cursor:"pointer",fontSize:"0.9rem",color:C.greenMid,fontWeight:600,borderBottom:`1px solid ${C.border}`,background:"#f0fdf4"}}>+ Add "{titleCase(input.trim())}"</div>}
+            {(input.trim()?filtered:rankedNutrients).map(n=>{
+              const sched=schedules[n];
+              const count=usageCounts[n]||0;
+              const isCustom=!stockSet.has(n.toLowerCase());
+              return(
+                <div key={n} onMouseDown={()=>selectN(n)} style={{padding:"10px 14px",cursor:"pointer",fontSize:"0.9rem",color:C.text,borderBottom:`1px solid #f9fafb`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:"8px"}}>
+                  <span style={{display:"flex",alignItems:"center",gap:"8px",minWidth:0,flex:1}}>
+                    <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{n}</span>
+                    {isCustom&&<span style={{fontSize:"0.64rem",color:"#7c3aed",fontWeight:700,background:"#f3e8ff",padding:"1px 6px",borderRadius:"5px",flexShrink:0}}>CUSTOM</span>}
+                  </span>
+                  <span style={{display:"flex",gap:"5px",flexShrink:0}}>
+                    {count>0&&<span style={{fontSize:"0.7rem",color:C.textSub,fontWeight:600}}>{count}×</span>}
+                    {sched&&<span style={{fontSize:"0.68rem",color:C.greenMid,fontWeight:600,background:"#dcfce7",padding:"2px 7px",borderRadius:"6px"}}>every {scheduleDays(sched)}d</span>}
+                  </span>
+                </div>
+              );
+            })}
+          </div>}
+          {input&&schedules[titleCase(input.trim())]&&<div style={{marginTop:"5px",fontSize:"0.78rem",color:C.greenMid,fontWeight:500}}>Schedule: every {scheduleDays(schedules[titleCase(input.trim())])} days</div>}
+        </div>
+        <div>
+          <div style={{fontSize:"0.78rem",fontWeight:600,color:C.textSub,marginBottom:"6px"}}>Quantity <span style={{color:C.textFaint,fontWeight:400}}>(optional)</span></div>
+          <div style={{display:"flex",gap:"8px"}}>
+            <input type="number" min="0" step="any" value={qty} onChange={e=>setQty(e.target.value)} placeholder="e.g. 2" style={{...iStyle,flex:1}}/>
+            <select value={unit} onChange={e=>setUnit(e.target.value)} style={{...iStyle,color:C.textSub,padding:"12px 10px"}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
+          </div>
+        </div>
+        <div>
+          <div onClick={()=>setIsLiquid(v=>!v)} style={{display:"flex",alignItems:"center",gap:"12px",padding:"12px 14px",background:isLiquid?"#eff6ff":"#f9fafb",borderRadius:"10px",border:`1.5px solid ${isLiquid?"#93c5fd":C.border}`,cursor:"pointer",userSelect:"none"}}>
+            <div className={`cb ${isLiquid?"checked":""}`}>{isLiquid&&<span style={{color:"white",fontSize:"0.8rem"}}>✓</span>}</div>
+            <div><div style={{fontSize:"0.92rem",fontWeight:600,color:C.text}}>Diluted in water</div><div style={{fontSize:"0.78rem",color:C.textSub}}>Check if mixed with water before applying</div></div>
+          </div>
+          {isLiquid&&<div style={{marginTop:"10px",display:"flex",gap:"8px"}}>
+            <input type="number" min="0" step="any" value={waterQty} onChange={e=>setWaterQty(e.target.value)} placeholder="e.g. 1" style={{...iStyle,flex:1}}/>
+            <select value={waterUnit} onChange={e=>setWaterUnit(e.target.value)} style={{...iStyle,color:C.textSub,padding:"12px 10px"}}>{WUNITS.map(u=><option key={u}>{u}</option>)}</select>
+          </div>}
+        </div>
+        <Btn onClick={submit} disabled={!input.trim()}>Save Feed Log</Btn>
+      </div>
+    </Sheet>
+  );
+}
+
+// ── Transplant Sheet ───────────────────────────────────────────
+function TransplantSheet({show,crop,locations,onTransplant,onClose}) {
+  const [toLoc,setToLoc]=useState("");
+  const [date,setDate]=useState(todayStr());
+  const [inContainer,setInContainer]=useState(false);
+  const [containerSize,setContainerSize]=useState("");
+  const [showNewLoc,setShowNewLoc]=useState(false);
+  const [locInput,setLocInput]=useState("");
+  const [locs,setLocs]=useState(locations);
+  useEffect(()=>{if(show){setLocs(locations);setToLoc("");setDate(todayStr());setInContainer(crop?.inContainer||false);setContainerSize(crop?.containerSize||"");setShowNewLoc(false);setLocInput("");}}, [show]);
+  function addLoc(){const v=locInput.trim();if(v&&!locs.includes(v)){setLocs(l=>[...l,v]);setToLoc(v);}setLocInput("");setShowNewLoc(false);}
+  const available=locs.filter(l=>l!==crop?.location);
+  const iS={padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:"white",outline:"none"};
+  return(
+    <Sheet show={show} onClose={onClose} title="Transplant / Move">
+      <div style={{display:"flex",flexDirection:"column",gap:"14px",paddingTop:"8px"}}>
+        <div style={{background:"#f9fafb",borderRadius:"10px",padding:"12px 14px",border:`1px solid ${C.border}`,fontSize:"0.9rem",color:C.textSub}}>Currently in: <strong style={{color:C.text}}>{crop?.location}</strong></div>
+        <div>
+          <div style={{fontSize:"0.78rem",fontWeight:600,color:C.textSub,marginBottom:"6px"}}>Move to <span style={{color:C.red}}>*</span></div>
+          {!showNewLoc?(
+            <div style={{display:"flex",gap:"8px"}}>
+              <select value={toLoc} onChange={e=>setToLoc(e.target.value)} style={{...iS,flex:1,appearance:"none"}}>
+                <option value="">Select location...</option>
+                {available.map(l=><option key={l}>{l}</option>)}
+              </select>
+              <button onClick={()=>setShowNewLoc(true)} style={{background:"#f3f4f6",border:"none",borderRadius:"10px",padding:"12px 14px",fontSize:"0.85rem",fontWeight:600,color:C.textSub,cursor:"pointer",flexShrink:0}}>+ New</button>
+            </div>
+          ):(
+            <div style={{display:"flex",gap:"8px"}}>
+              <input value={locInput} onChange={e=>setLocInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addLoc();}} autoFocus placeholder="Location name..." style={{...iS,flex:1,border:`1.5px solid ${C.green}`}}/>
+              <button onClick={addLoc} style={{background:C.green,color:"white",border:"none",borderRadius:"10px",padding:"12px 16px",fontWeight:700,fontSize:"0.9rem",cursor:"pointer"}}>Add</button>
+              <button onClick={()=>{setShowNewLoc(false);setLocInput("");}} style={{background:"transparent",border:"none",color:C.textFaint,cursor:"pointer",fontSize:"1rem"}}>✕</button>
+            </div>
+          )}
+        </div>
+        <Field label="Transplant Date" value={date} onChange={e=>setDate(e.target.value)} type="date" required/>
+        <div>
+          <div onClick={()=>setInContainer(v=>!v)} style={{display:"flex",alignItems:"center",gap:"12px",padding:"12px 14px",background:inContainer?"#eff6ff":"#f9fafb",borderRadius:"10px",border:`1.5px solid ${inContainer?"#93c5fd":C.border}`,cursor:"pointer",userSelect:"none"}}>
+            <div className={`cb ${inContainer?"checked":""}`}>{inContainer&&<span style={{color:"white",fontSize:"0.8rem"}}>✓</span>}</div>
+            <div><div style={{fontSize:"0.92rem",fontWeight:600,color:C.text}}>Going into a container</div><div style={{fontSize:"0.78rem",color:C.textSub}}>Pot, bucket, bag, DWC, etc.</div></div>
+          </div>
+          {inContainer&&<div style={{marginTop:"10px"}}><Field label="Container size / type" value={containerSize} onChange={e=>setContainerSize(e.target.value)} placeholder="e.g. 5 gallon fabric pot, 20L DWC..." required/></div>}
+        </div>
+        <Btn onClick={()=>{if(toLoc){onTransplant(crop.id,toLoc,date,inContainer,containerSize,locs);onClose();}}} disabled={!toLoc}>Confirm Transplant</Btn>
+      </div>
+    </Sheet>
+  );
+}
+
+// ── Crop Detail Panel ──────────────────────────────────────────
+function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,onMarkDone,onMarkLost,onAddNote,onEditNote,onDeleteNote,onLogHarvest,onEditHarvest,onDeleteHarvest,onAddFeed,onEditFeed,onDeleteFeed,onAddNutrient,onTransplant,onWater}) {
+  const [tab,setTab]=useState("info");
+  const [noteText,setNoteText]=useState("");
+  const [editingNoteIdx,setEditingNoteIdx]=useState(null);
+  const [editingNoteText,setEditingNoteText]=useState("");
+  const [deleteNoteIdx,setDeleteNoteIdx]=useState(null);
+  const [editingHarvestIdx,setEditingHarvestIdx]=useState(null);
+  const [editHarvestData,setEditHarvestData]=useState({amount:"",unit:"g",note:""});
+  const [deleteHarvestIdx,setDeleteHarvestIdx]=useState(null);
+  const [showFeed,setShowFeed]=useState(false);
+  const [showHarvest,setShowHarvest]=useState(false);
+  const [showTransplant,setShowTransplant]=useState(false);
+  const [confirmDone,setConfirmDone]=useState(false);
+  const [confirmLost,setConfirmLost]=useState(false);
+  const [editingFeedIdx,setEditingFeedIdx]=useState(null);
+  const [editFeedData,setEditFeedData]=useState({nutrient:"",qty:"",unit:"tbsp",water:""});
+  const [deleteFeedIdx,setDeleteFeedIdx]=useState(null);
+  const FUNITS=["tsp","tbsp","cup","fl oz","ml","L","oz","lb","g"];
+  useEffect(()=>{if(show)setTab("info");},[show]);
+  if(!crop) return null;
+  const acc=cropAccent(crop.name);
+  const schedules=crop.feedSchedules||{};
+  const feedLog=crop.feedLog||[];
+  const waterLog=crop.waterLog||[];
+  const overdue=Object.entries(schedules).some(([n,d])=>{const l=[...feedLog].reverse().find(f=>f.nutrient===n);return l&&daysAgo(l.date)>=scheduleDays(d);});
+  const ws=hwStatus(crop);
+  const nextSow=crop.successionDays?succDate(crop.seedDate,crop.successionDays):null;
+  const sowDiff=nextSow?daysUntil(nextSow):null;
+  const lastWater=waterLog.length?waterLog[waterLog.length-1]:null;
+  const daysWater=lastWater?daysAgo(lastWater.date):null;
+  const total=harvestTotal(crop);
+  const dInStage=daysSinceStage(crop);
+  const stageHistory=crop.stageHistory||[];
+  const startLabel=crop.startType==="direct"?"Direct Sown":crop.startType==="clone"?"Clone / Seedling":"Started Indoors";
+
+  return(
+    <>
+    <Panel show={show} onClose={onClose} title={`${crop.name}${crop.variety?` · ${crop.variety}`:""}`}>
+      <div style={{background:`linear-gradient(135deg,${acc.from},${acc.to})`,padding:"20px 20px 18px"}}>
+        <div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.14em",color:"rgba(255,255,255,0.55)",textTransform:"uppercase",marginBottom:"5px"}}>{crop.name}</div>
+        <div style={{fontFamily:F.serif,fontStyle:"italic",fontSize:"1.6rem",color:"white",lineHeight:1.2}}>{crop.variety||<span style={{opacity:0.5}}>No variety</span>}</div>
+      </div>
+      <div style={{display:"flex",background:"white",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,zIndex:10}}>
+        {["info","notes","harvests"].map(t=>(
+          <button key={t} onClick={()=>setTab(t)} style={{flex:1,padding:"14px 0",border:"none",background:"transparent",fontSize:"0.85rem",fontWeight:600,color:tab===t?C.greenMid:C.textSub,borderBottom:`2px solid ${tab===t?C.green:"transparent"}`,cursor:"pointer",textTransform:"capitalize"}}>
+            {t==="info"?"Info":t==="notes"?`Notes${crop.notes.length?` (${crop.notes.length})`:""}`:`Harvests${crop.harvests.length?` (${crop.harvests.length})`:""}`}
+          </button>
+        ))}
+      </div>
+      <div style={{padding:"16px",display:"flex",flexDirection:"column",gap:"12px"}}>
+        {tab==="info"&&(
+          <>
+            {/* Stats grid */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
+              <StatTile label="Stage Duration" value={dInStage!==null?`${crop.stage} · ${dInStage}d`:crop.stage}/>
+              <StatTile label="Location" value={crop.location}/>
+              <StatTile label="Start Method" value={startLabel}/>
+              <StatTile label={crop.inContainer?"Container":"Growing In"} value={crop.inContainer&&crop.containerSize?crop.containerSize:crop.inContainer?"Container":"Ground / Bed"}/>
+              <StatTile label={crop.startType==="direct"?"Sow Date":"Start Date"} value={fmtDate(crop.seedDate)}/>
+              {crop.transplantDate?<StatTile label="Transplanted" value={fmtDate(crop.transplantDate)}/>:<StatTile label="Weeks Since Start" value={crop.seedDate?`${weeksAgo(crop.seedDate)} wks`:"—"}/>}
+              <StatTile label="Est. Harvest" value={harvestFmt(crop.startType==="direct"?crop.seedDate:(crop.transplantDate||crop.seedDate),crop.daysToMaturity)||"—"}/>
+              <StatTile label="Days to Maturity" value={crop.daysToMaturity?`${crop.daysToMaturity}d`:"—"}/>
+            </div>
+
+            {/* Stage Timeline */}
+            {(()=>{
+              if(!stageHistory.length) return null;
+              // Only skip true duplicates: same stage on the same date back-to-back
+              const deduped=stageHistory.filter((s,i)=>{
+                const prev=stageHistory[i-1];
+                return !(prev && prev.stage===s.stage && prev.date===s.date);
+              });
+              if(!deduped.length) return null;
+              // Hide if there's only one entry and it was added today (nothing meaningful yet to compare)
+              if(deduped.length===1 && daysAgo(deduped[0].date)<=0) return null;
+              return(
+                <div style={{background:"white",borderRadius:"12px",padding:"14px",border:`1px solid ${C.border}`}}>
+                  <SLabel mt="0">Stage Timeline</SLabel>
+                  <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
+                    {deduped.map((s,i)=>{
+                      const sc=STAGE_COLORS[s.stage]||STAGE_COLORS.Seedling;
+                      const next=deduped[i+1];
+                      const days=next
+                        ? Math.max(0,Math.round((new Date(next.date)-new Date(s.date))/864e5))
+                        : Math.max(0,daysAgo(s.date));
+                      return(
+                        <div key={i} style={{display:"flex",alignItems:"center",gap:"10px"}}>
+                          <div style={{width:"10px",height:"10px",borderRadius:"50%",background:sc.dot,flexShrink:0}}/>
+                          <div style={{flex:1,fontSize:"0.85rem",fontWeight:600,color:C.text}}>{s.stage}</div>
+                          <div style={{fontSize:"0.75rem",color:C.textFaint}}>{fmtDate(s.date)}</div>
+                          <div style={{fontSize:"0.75rem",color:C.textSub,minWidth:"36px",textAlign:"right"}}>{days}d</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Harvest window (keep prominent) */}
+            {ws&&(()=>{
+              if(ws.inWindow) return(
+                <div style={{background:"#faf5ff",borderRadius:"14px",padding:"16px",border:"1.5px solid #e9d5ff"}}>
+                  <div style={{fontSize:"0.7rem",fontWeight:700,color:"#7c3aed",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:"6px"}}>🌾 Harvest Window Open</div>
+                  <div style={{fontSize:"1rem",fontWeight:700,color:"#4c1d95",marginBottom:"4px"}}>Est. maturity {fmtDate(ws.matDate)}{ws.daysPastMat>0?` · ${ws.daysPastMat}d past`:""}</div>
+                  <div style={{fontSize:"0.8rem",color:"#7c3aed",marginBottom:"12px"}}>Open since {fmtDate(ws.openDate)} · stays open until marked Done or Lost</div>
+                  <button onClick={()=>setShowHarvest(true)} style={{width:"100%",padding:"11px",borderRadius:"10px",border:"none",background:"#8b5cf6",color:"white",fontWeight:700,fontSize:"0.88rem",cursor:"pointer"}}>🌿 Log a Harvest{total?` · ${total.value}${total.unit} total`:""}</button>
+                </div>
+              );
+              if(ws.daysToOpen>0&&ws.daysToOpen<=14) return(
+                <div style={{background:"#faf5ff",borderRadius:"14px",padding:"14px",border:"1.5px solid #e9d5ff"}}>
+                  <div style={{fontSize:"0.7rem",fontWeight:700,color:"#7c3aed",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:"4px"}}>🌾 Harvest Window</div>
+                  <div style={{fontSize:"0.92rem",fontWeight:600,color:"#4c1d95"}}>Opens in {ws.daysToOpen} day{ws.daysToOpen!==1?"s":""} · {fmtDate(ws.openDate)}</div>
+                  <div style={{fontSize:"0.8rem",color:"#7c3aed",marginTop:"2px"}}>Est. maturity {fmtDate(ws.matDate)}</div>
+                </div>
+              );
+              return(
+                <div style={{background:"#f9fafb",borderRadius:"14px",padding:"12px 14px",border:`1px solid ${C.border}`}}>
+                  <div style={{fontSize:"0.7rem",fontWeight:700,color:C.textFaint,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:"3px"}}>🌾 Harvest Window</div>
+                  <div style={{fontSize:"0.9rem",color:C.textSub}}>Opens {fmtDate(ws.openDate)} · est. maturity {fmtDate(ws.matDate)}</div>
+                </div>
+              );
+            })()}
+
+            {/* Succession */}
+            {nextSow&&<div style={{background:sowDiff!==null&&sowDiff<=3?"#f0fdf4":"#f9fafb",borderRadius:"14px",padding:"12px 14px",border:`1.5px solid ${sowDiff!==null&&sowDiff<=3?"#86efac":C.border}`}}><div style={{fontSize:"0.7rem",fontWeight:700,color:C.greenMid,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:"4px"}}>🌱 Succession</div><div style={{fontSize:"0.92rem",fontWeight:600,color:C.text}}>Next sow: {fmtDate(nextSow)}{sowDiff!==null&&<span style={{marginLeft:"8px",fontSize:"0.82rem",fontWeight:400,color:sowDiff<=0?C.greenMid:sowDiff<=3?"#15803d":C.textSub}}>{sowDiff<=0?"🟢 Sow now!":`in ${sowDiff}d`}</span>}</div></div>}
+
+            {/* Watering */}
+            <div style={{background:daysWater!==null&&daysWater>=2?"#eff6ff":"#f9fafb",borderRadius:"14px",border:`1.5px solid ${daysWater!==null&&daysWater>=2?"#93c5fd":C.border}`,overflow:"hidden"}}>
+              <div style={{display:"flex",alignItems:"center",padding:"14px",gap:"12px"}}>
+                <div style={{flex:1}}><div style={{fontSize:"0.7rem",fontWeight:700,color:C.textFaint,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:"3px"}}>💧 Watering</div><div style={{fontSize:"0.9rem",fontWeight:600,color:C.text}}>{lastWater?`Last watered ${fmtDate(lastWater.date)}`:"Not yet logged"}</div>{daysWater!==null&&<div style={{fontSize:"0.78rem",color:daysWater>=2?"#1d4ed8":C.greenMid,marginTop:"1px"}}>{daysWater===0?"Watered today":`${daysWater} day${daysWater!==1?"s":""} ago`}</div>}</div>
+                <button onClick={()=>onWater(crop.id)} style={{background:"#3b82f6",color:"white",border:"none",borderRadius:"10px",padding:"10px 16px",fontSize:"0.85rem",fontWeight:700,cursor:"pointer",flexShrink:0}}>Watered 💧</button>
+              </div>
+              {waterLog.length>1&&(
+                <div style={{padding:"0 14px 12px"}}>
+                  <div style={{fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.06em",color:C.textFaint,textTransform:"uppercase",marginBottom:"6px"}}>History</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:"5px"}}>
+                    {[...waterLog].reverse().slice(1,10).map((w,i)=>(
+                      <span key={i} style={{fontSize:"0.72rem",background:"#dbeafe",color:"#1e40af",padding:"3px 8px",borderRadius:"6px",fontWeight:600}}>
+                        {fmtMon(w.date)}
+                      </span>
+                    ))}
+                    {waterLog.length>10&&<span style={{fontSize:"0.72rem",color:C.textFaint,padding:"3px 4px",fontStyle:"italic"}}>+{waterLog.length-10} more</span>}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Feeding */}
+            <div style={{background:overdue?"#fffbeb":"#f9fafb",borderRadius:"14px",border:`1.5px solid ${overdue?"#fcd34d":C.border}`,overflow:"hidden"}}>
+              <div style={{padding:"14px",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:"0.7rem",fontWeight:700,color:overdue?"#92400e":C.textFaint,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:"6px"}}>🌿 Feeding</div>
+                  {Object.keys(schedules).length===0&&feedLog.length===0&&<div style={{fontSize:"0.88rem",color:C.textSub}}>Log your first feed to set up a per-nutrient schedule.</div>}
+                  {Object.entries(schedules).map(([nutrient,sched])=>{const intervalDays=scheduleDays(sched);const last=[...feedLog].reverse().find(f=>f.nutrient===nutrient);const ds=last?daysAgo(last.date):null;const od=ds!==null&&ds>=intervalDays;const dl=intervalDays-(ds||0);return(<div key={nutrient} style={{marginBottom:"6px"}}><div style={{fontSize:"0.88rem",fontWeight:600,color:C.text}}>{nutrient}</div><div style={{fontSize:"0.78rem",color:od?"#b45309":C.greenMid,marginTop:"1px"}}>{od?`⚠ Overdue by ${ds-intervalDays}d · every ${intervalDays}d`:last?`Next in ${dl}d · every ${intervalDays}d · last ${fmtDate(last.date)}`:`Every ${intervalDays}d · not yet fed`}</div></div>);})}
+                  {feedLog.length>0&&(()=>{const last=feedLog[feedLog.length-1];const d=daysAgo(last.date);return<div style={{fontSize:"0.82rem",color:C.textSub,marginTop:Object.keys(schedules).length>0?"8px":"0",paddingTop:Object.keys(schedules).length>0?"8px":"0",borderTop:Object.keys(schedules).length>0?`1px solid ${C.border}`:"none"}}>Last fed: <strong style={{color:C.text,fontWeight:600}}>{last.nutrient}</strong>{last.qty?` · ${last.qty}`:""} · {d===0?"today":`${d}d ago`}</div>;})()}
+                </div>
+                <button onClick={()=>setShowFeed(true)} style={{background:overdue?"#f59e0b":C.green,color:"white",border:"none",borderRadius:"10px",padding:"10px 16px",fontSize:"0.85rem",fontWeight:700,cursor:"pointer",flexShrink:0,marginLeft:"12px"}}>Log Feed</button>
+              </div>
+              {feedLog.length>0&&(
+                <div style={{padding:"0 14px 14px"}}>
+                  <div style={{fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.06em",color:C.textFaint,textTransform:"uppercase",marginBottom:"8px"}}>History</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
+                    {[...feedLog].reverse().map((fe,revIdx)=>{
+                      const realIdx=feedLog.length-1-revIdx;
+                      const isEditing=editingFeedIdx===realIdx;
+                      return(
+                        <div key={realIdx} style={{background:"white",borderRadius:"10px",padding:"10px 12px",border:`1px solid ${C.border}`}}>
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:isEditing?"6px":"3px"}}>
+                            <span style={{fontSize:"0.72rem",color:C.textFaint}}>{fmtDate(fe.date)}</span>
+                            {!isEditing&&(
+                              <div style={{display:"flex",gap:"4px"}}>
+                                <button onClick={()=>{setEditingFeedIdx(realIdx);setEditFeedData({nutrient:fe.nutrient||"",qty:fe.qty?fe.qty.split(" ")[0]:"",unit:fe.qty?fe.qty.split(" ").slice(1).join(" ")||"tbsp":"tbsp",water:fe.water||""});}} style={{background:"transparent",border:"none",color:C.textSub,fontSize:"0.72rem",fontWeight:600,cursor:"pointer",padding:"2px 6px"}}>Edit</button>
+                                <button onClick={()=>setDeleteFeedIdx(realIdx)} style={{background:"transparent",border:"none",color:"#dc2626",fontSize:"0.72rem",fontWeight:600,cursor:"pointer",padding:"2px 6px"}}>Delete</button>
+                              </div>
+                            )}
+                          </div>
+                          {isEditing?(
+                            <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
+                              <input value={editFeedData.nutrient} onChange={e=>setEditFeedData(d=>({...d,nutrient:e.target.value}))} placeholder="Nutrient" style={{padding:"8px 10px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.88rem",outline:"none"}}/>
+                              <div style={{display:"flex",gap:"6px"}}>
+                                <input type="number" min="0" step="any" value={editFeedData.qty} onChange={e=>setEditFeedData(d=>({...d,qty:e.target.value}))} placeholder="Qty" style={{flex:1,padding:"8px 10px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.88rem",outline:"none"}}/>
+                                <select value={editFeedData.unit} onChange={e=>setEditFeedData(d=>({...d,unit:e.target.value}))} style={{padding:"8px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.85rem",background:"white"}}>
+                                  {FUNITS.map(u=><option key={u}>{u}</option>)}
+                                </select>
+                              </div>
+                              <input value={editFeedData.water} onChange={e=>setEditFeedData(d=>({...d,water:e.target.value}))} placeholder="Water (e.g. 1 gal)" style={{padding:"8px 10px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.88rem",outline:"none"}}/>
+                              <div style={{display:"flex",gap:"6px"}}>
+                                <button onClick={()=>{onEditFeed(crop.id,realIdx,{nutrient:titleCase(editFeedData.nutrient.trim()),qty:editFeedData.qty?`${editFeedData.qty} ${editFeedData.unit}`:null,water:editFeedData.water||null});setEditingFeedIdx(null);}} style={{flex:1,background:C.green,color:"white",border:"none",borderRadius:"8px",padding:"8px",fontWeight:700,fontSize:"0.82rem",cursor:"pointer"}}>Save</button>
+                                <button onClick={()=>setEditingFeedIdx(null)} style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,borderRadius:"8px",padding:"8px",fontSize:"0.82rem",color:C.textSub,cursor:"pointer"}}>Cancel</button>
+                              </div>
+                            </div>
+                          ):(
+                            <>
+                              <div style={{fontSize:"0.88rem",fontWeight:600,color:C.text}}>{fe.nutrient||"—"}</div>
+                              <div style={{display:"flex",gap:"5px",marginTop:"3px",flexWrap:"wrap"}}>
+                                {fe.qty&&<span style={{fontSize:"0.7rem",fontWeight:600,color:C.greenDark,background:"#dcfce7",padding:"2px 7px",borderRadius:"6px"}}>{fe.qty}</span>}
+                                {fe.water&&<span style={{fontSize:"0.7rem",fontWeight:600,color:"#1d4ed8",background:"#dbeafe",padding:"2px 7px",borderRadius:"6px"}}>💧 {fe.water}</span>}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+            <ConfirmSheet show={deleteFeedIdx!==null} title="Delete feed entry?" message="This feed log entry will be permanently deleted." confirmLabel="Delete" danger onConfirm={()=>{if(deleteFeedIdx!==null){onDeleteFeed(crop.id,deleteFeedIdx);setDeleteFeedIdx(null);}}} onCancel={()=>setDeleteFeedIdx(null)}/>
+
+            {/* Transplant */}
+            <button onClick={()=>setShowTransplant(true)} style={{display:"flex",alignItems:"center",gap:"10px",background:"white",borderRadius:"12px",padding:"12px 14px",border:`1px solid ${C.border}`,cursor:"pointer",textAlign:"left",width:"100%"}}>
+              <span style={{fontSize:"1.2rem"}}>📦</span>
+              <div style={{flex:1}}><div style={{fontSize:"0.88rem",fontWeight:600,color:C.text}}>Transplant / Move Location</div><div style={{fontSize:"0.75rem",color:C.textSub,marginTop:"2px"}}>Currently in {crop.location}{crop.containerSize?` · ${crop.containerSize}`:""}</div></div>
+              <span style={{color:C.textFaint}}>›</span>
+            </button>
+
+            {/* Edit */}
+            <button onClick={onEdit} style={{width:"100%",padding:"13px",borderRadius:"12px",border:`1.5px solid ${C.border}`,background:"white",fontSize:"0.9rem",fontWeight:600,color:C.text,cursor:"pointer"}}>Edit Crop Details</button>
+
+            {/* Spacer */}
+            <div style={{height:"16px"}}/>
+
+            {/* Mark Done / Lost — subtle at bottom */}
+            <div style={{display:"flex",gap:"8px",marginTop:"4px"}}>
+              <button onClick={()=>setConfirmDone(true)} style={{flex:1,padding:"9px",borderRadius:"10px",border:"none",background:"transparent",fontSize:"0.78rem",fontWeight:500,color:C.textFaint,cursor:"pointer",textDecoration:"underline"}}>Mark as Done</button>
+              <button onClick={()=>setConfirmLost(true)} style={{flex:1,padding:"9px",borderRadius:"10px",border:"none",background:"transparent",fontSize:"0.78rem",fontWeight:500,color:C.textFaint,cursor:"pointer",textDecoration:"underline"}}>Mark as Lost</button>
+            </div>
+          </>
+        )}
+        {tab==="notes"&&(
+          <>
+            <div style={{display:"flex",gap:"8px"}}>
+              <input value={noteText} onChange={e=>setNoteText(e.target.value)} placeholder="Add a note..."
+                onKeyDown={e=>{if(e.key==="Enter"&&noteText.trim()){onAddNote(crop.id,noteText);setNoteText("");}}}
+                style={{flex:1,padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:"white",outline:"none"}}/>
+              <button onClick={()=>{if(noteText.trim()){onAddNote(crop.id,noteText);setNoteText("");}}} style={{background:C.green,color:"white",border:"none",borderRadius:"10px",padding:"12px 18px",fontSize:"0.9rem",fontWeight:700,cursor:"pointer"}}>Add</button>
+            </div>
+            {crop.notes.length===0&&<div style={{textAlign:"center",padding:"2rem 0",color:C.textFaint,fontStyle:"italic"}}>No notes yet.</div>}
+            <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+              {crop.notes.map((n,idx)=>n).reverse().map((n,revIdx)=>{
+                const realIdx=crop.notes.length-1-revIdx;
+                const isEditing=editingNoteIdx===realIdx;
+                return(
+                  <div key={realIdx} style={{background:"white",borderRadius:"12px",padding:"14px",borderLeft:`3px solid ${n.auto?C.amber:C.green}`}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"4px"}}>
+                      <div style={{fontSize:"0.72rem",color:C.textFaint}}>{fmtDate(n.date)}
+                        {n.auto&&<span style={{display:"none"}}/>}
+                        {n.edited&&<span style={{marginLeft:"6px",fontSize:"0.68rem",color:C.textFaint,fontStyle:"italic"}}>edited</span>}
+                      </div>
+                      {!isEditing&&!n.auto&&(
+                        <div style={{display:"flex",gap:"4px"}}>
+                          <button onClick={()=>{setEditingNoteIdx(realIdx);setEditingNoteText(n.text);}} style={{background:"transparent",border:"none",color:C.textSub,fontSize:"0.72rem",fontWeight:600,cursor:"pointer",padding:"2px 6px"}}>Edit</button>
+                          <button onClick={()=>setDeleteNoteIdx(realIdx)} style={{background:"transparent",border:"none",color:"#dc2626",fontSize:"0.72rem",fontWeight:600,cursor:"pointer",padding:"2px 6px"}}>Delete</button>
+                        </div>
+                      )}
+                      {n.auto&&(
+                        <button onClick={()=>setDeleteNoteIdx(realIdx)} style={{background:"transparent",border:"none",color:C.textFaint,fontSize:"0.72rem",fontWeight:600,cursor:"pointer",padding:"2px 6px"}}>Delete</button>
+                      )}
+                    </div>
+                    {isEditing?(
+                      <div>
+                        <textarea value={editingNoteText} onChange={e=>setEditingNoteText(e.target.value)} autoFocus
+                          style={{width:"100%",padding:"10px 12px",borderRadius:"8px",border:`1.5px solid ${C.green}`,fontSize:"0.9rem",outline:"none",resize:"vertical",minHeight:"60px",fontFamily:F.sans}}/>
+                        <div style={{display:"flex",gap:"6px",marginTop:"6px"}}>
+                          <button onClick={()=>{if(editingNoteText.trim()){onEditNote(crop.id,realIdx,editingNoteText.trim());}setEditingNoteIdx(null);}} style={{background:C.green,color:"white",border:"none",borderRadius:"8px",padding:"6px 14px",fontWeight:700,fontSize:"0.82rem",cursor:"pointer"}}>Save</button>
+                          <button onClick={()=>setEditingNoteIdx(null)} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:"8px",padding:"6px 12px",fontSize:"0.82rem",color:C.textSub,cursor:"pointer"}}>Cancel</button>
+                        </div>
+                      </div>
+                    ):(
+                      <div style={{fontSize:"0.9rem",color:C.text,lineHeight:1.5}}>{n.text}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+        {tab==="harvests"&&(
+          <>
+            {total&&<div style={{background:"#f0fdf4",borderRadius:"12px",padding:"14px",border:"1px solid #bbf7d0",display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontSize:"0.82rem",color:C.greenDark,fontWeight:600}}>Total harvested</div><div style={{fontSize:"1.1rem",fontWeight:700,color:C.greenDark}}>{total.value} {total.unit}</div></div>}
+            <button onClick={()=>setShowHarvest(true)} style={{width:"100%",padding:"13px",borderRadius:"12px",border:"none",background:"#8b5cf6",color:"white",fontSize:"0.9rem",fontWeight:700,cursor:"pointer"}}>+ Log a Harvest</button>
+            {crop.harvests.length===0&&<div style={{textAlign:"center",padding:"2rem 0",color:C.textFaint,fontStyle:"italic"}}>No harvests logged yet.</div>}
+            <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+              {crop.harvests.map((h,i)=>h).reverse().map((h,revIdx)=>{
+                const realIdx=crop.harvests.length-1-revIdx;
+                const isEditing=editingHarvestIdx===realIdx;
+                return(
+                  <div key={realIdx} style={{background:"white",borderRadius:"12px",padding:"14px",borderLeft:"3px solid #8b5cf6"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"4px"}}>
+                      <div style={{fontSize:"0.72rem",color:C.textFaint}}>{fmtDate(h.date)}</div>
+                      {!isEditing&&(
+                        <div style={{display:"flex",gap:"4px"}}>
+                          <button onClick={()=>{setEditingHarvestIdx(realIdx);setEditHarvestData({amount:h.amount||"",unit:h.unit||"g",note:h.note||""});}} style={{background:"transparent",border:"none",color:C.textSub,fontSize:"0.72rem",fontWeight:600,cursor:"pointer",padding:"2px 6px"}}>Edit</button>
+                          <button onClick={()=>setDeleteHarvestIdx(realIdx)} style={{background:"transparent",border:"none",color:"#dc2626",fontSize:"0.72rem",fontWeight:600,cursor:"pointer",padding:"2px 6px"}}>Delete</button>
+                        </div>
+                      )}
+                    </div>
+                    {isEditing?(
+                      <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+                        <div style={{display:"flex",gap:"6px"}}>
+                          <input type="number" value={editHarvestData.amount} onChange={e=>setEditHarvestData(d=>({...d,amount:e.target.value}))} placeholder="Amount"
+                            style={{flex:1,padding:"8px 10px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.88rem",outline:"none"}}/>
+                          <select value={editHarvestData.unit} onChange={e=>setEditHarvestData(d=>({...d,unit:e.target.value}))}
+                            style={{padding:"8px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.85rem"}}>
+                            {HARVEST_UNITS.map(u=><option key={u}>{u}</option>)}
+                          </select>
+                        </div>
+                        <input value={editHarvestData.note} onChange={e=>setEditHarvestData(d=>({...d,note:e.target.value}))} placeholder="Notes"
+                          style={{padding:"8px 10px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.88rem",outline:"none"}}/>
+                        <div style={{display:"flex",gap:"6px"}}>
+                          <button onClick={()=>{onEditHarvest(crop.id,realIdx,{amount:editHarvestData.amount?Number(editHarvestData.amount):null,unit:editHarvestData.amount?editHarvestData.unit:null,note:editHarvestData.note||null});setEditingHarvestIdx(null);}} style={{flex:1,background:C.green,color:"white",border:"none",borderRadius:"8px",padding:"8px",fontWeight:700,fontSize:"0.82rem",cursor:"pointer"}}>Save</button>
+                          <button onClick={()=>setEditingHarvestIdx(null)} style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,borderRadius:"8px",padding:"8px",fontSize:"0.82rem",color:C.textSub,cursor:"pointer"}}>Cancel</button>
+                        </div>
+                      </div>
+                    ):(
+                      <div style={{fontSize:"0.9rem",fontWeight:600,color:C.text}}>{h.amount&&`${h.amount} ${h.unit}`}{h.note&&<span style={{fontWeight:400,color:C.textSub,marginLeft:h.amount?"8px":"0"}}>{h.note}</span>}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    </Panel>
+    <FeedLogSheet show={showFeed} crop={crop} allCrops={allCrops} nutrients={nutrients} onAddNutrient={onAddNutrient} onAddFeed={onAddFeed} onEditFeed={onEditFeed} onDeleteFeed={onDeleteFeed} onClose={()=>setShowFeed(false)}/>
+    <HarvestLogSheet show={showHarvest} crop={crop} onLog={onLogHarvest} onClose={()=>setShowHarvest(false)}/>
+    <TransplantSheet show={showTransplant} crop={crop} locations={locations} onTransplant={onTransplant} onClose={()=>setShowTransplant(false)}/>
+    <ConfirmSheet show={confirmDone} title="Mark as Done?" message={`This will archive ${crop.name}${crop.variety?` (${crop.variety})`:""} and remove it from your active crops.`} confirmLabel="Mark Done" onConfirm={()=>{setConfirmDone(false);onMarkDone(crop);}} onCancel={()=>setConfirmDone(false)}/>
+    <ConfirmSheet show={confirmLost} title="Mark as Lost?" message={`This will archive ${crop.name}${crop.variety?` (${crop.variety})`:""} as a loss.`} confirmLabel="Mark Lost" danger onConfirm={()=>{setConfirmLost(false);onMarkLost(crop);}} onCancel={()=>setConfirmLost(false)}/>
+    <ConfirmSheet show={deleteNoteIdx!==null} title="Delete note?" message="This note will be permanently deleted." confirmLabel="Delete" danger onConfirm={()=>{if(deleteNoteIdx!==null){onDeleteNote(crop.id,deleteNoteIdx);setDeleteNoteIdx(null);}}} onCancel={()=>setDeleteNoteIdx(null)}/>
+    <ConfirmSheet show={deleteHarvestIdx!==null} title="Delete harvest?" message="This harvest entry will be permanently deleted and removed from your totals." confirmLabel="Delete" danger onConfirm={()=>{if(deleteHarvestIdx!==null){onDeleteHarvest(crop.id,deleteHarvestIdx);setDeleteHarvestIdx(null);}}} onCancel={()=>setDeleteHarvestIdx(null)}/>
+    </>
+  );
+}
+
+// ── Crop Card ──────────────────────────────────────────────────
+function CropCard({crop,onClick,onWater}) {
+  const acc=cropAccent(crop.name);
+  const sc=STAGE_COLORS[crop.stage]||STAGE_COLORS.Seedling;
+  const schedules=crop.feedSchedules||{};
+  const feedLog=crop.feedLog||[];
+  const waterLog=crop.waterLog||[];
+  const overdue=Object.entries(schedules).some(([n,d])=>{const l=[...feedLog].reverse().find(f=>f.nutrient===n);return l&&daysAgo(l.date)>=scheduleDays(d);});
+  const ws=hwStatus(crop);
+  const nextSow=crop.successionDays?succDate(crop.seedDate,crop.successionDays):null;
+  const sowSoon=nextSow&&daysUntil(nextSow)<=3;
+  const lastWater=waterLog.length?waterLog[waterLog.length-1]:null;
+  const daysWater=lastWater?daysAgo(lastWater.date):null;
+  const lastFeed=feedLog.length?feedLog[feedLog.length-1]:null;
+  const daysFed=lastFeed?daysAgo(lastFeed.date):null;
+  const dInStage=daysSinceStage(crop);
+  const timeLabel=crop.seedDate?`${weeksAgo(crop.seedDate)}w since start`:"—";
+  const estHarvest=harvestFmt(crop.startType==="direct"?crop.seedDate:(crop.transplantDate||crop.seedDate),crop.daysToMaturity);
+  return(
+    <div style={{background:"white",borderRadius:"16px",overflow:"hidden",border:`1.5px solid ${ws?.inWindow?"#c4b5fd":overdue?"#fcd34d":C.border}`,boxShadow:ws?.inWindow?"0 2px 12px rgba(139,92,246,0.12)":"0 1px 6px rgba(0,0,0,0.06)",userSelect:"none"}}>
+      <div style={{height:"4px",background:`linear-gradient(to right,${acc.from},${acc.to})`}}/>
+      <div onClick={onClick} style={{padding:"12px 14px",cursor:"pointer"}}>
+        <div style={{marginBottom:"8px"}}>
+          <div style={{fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.1em",color:C.textFaint,textTransform:"uppercase",marginBottom:"2px"}}>{crop.name}</div>
+          <div style={{fontFamily:F.serif,fontStyle:"italic",fontSize:"1.05rem",color:C.text,lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{crop.variety||<span style={{color:C.textFaint,fontStyle:"normal",fontFamily:F.sans,fontSize:"0.9rem"}}>No variety</span>}</div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:"6px",marginBottom:"6px"}}>
+          <div style={{width:"8px",height:"8px",borderRadius:"50%",background:sc.dot,flexShrink:0}}/>
+          <span style={{fontSize:"0.82rem",fontWeight:700,color:sc.text}}>{crop.stage}</span>
+          {dInStage!==null&&<span style={{fontSize:"0.75rem",color:C.textFaint}}>· {dInStage}d in stage</span>}
+        </div>
+        {estHarvest&&<div style={{fontSize:"0.75rem",color:ws?.inWindow?"#7c3aed":C.textSub,marginBottom:"4px",fontWeight:ws?.inWindow?700:500}}>🌾 Est. harvest: {estHarvest}{ws&&!ws.inWindow&&ws.daysToOpen>0?` · in ${ws.daysToOpen}d`:""}{ws?.inWindow?" · window open":""}</div>}
+        {lastFeed&&<div style={{fontSize:"0.72rem",color:C.textSub,marginBottom:"4px"}}>🌿 Last fed: <strong style={{color:C.text,fontWeight:600}}>{lastFeed.nutrient}</strong> · {daysFed===0?"today":`${daysFed}d ago`}</div>}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontSize:"0.72rem",color:C.textFaint}}>{timeLabel}{crop.containerSize?` · ${crop.containerSize}`:""}</div>
+          <div style={{fontSize:"0.9rem",lineHeight:1}}>{overdue?"⚠️":""}{sowSoon?"🔔":""}</div>
+        </div>
+      </div>
+      <div style={{borderTop:`1px solid #f3f4f6`,padding:"8px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",background:"#fafafa"}}>
+        <span style={{fontSize:"0.75rem",color:daysWater===0?"#15803d":daysWater!==null?C.textSub:C.textFaint}}>{daysWater===null?"Never watered":daysWater===0?"Watered today":`Watered ${daysWater}d ago`}</span>
+        {onWater&&<button onClick={e=>{e.stopPropagation();onWater(crop.id);}} style={{background:"#eff6ff",border:"none",borderRadius:"8px",padding:"5px 12px",fontSize:"0.75rem",fontWeight:600,color:"#1d4ed8",cursor:"pointer"}}>💧 Watered</button>}
+      </div>
+    </div>
+  );
+}
+
+// ── Location Panel ─────────────────────────────────────────────
+function LocationPanel({show,location,crops,onClose,onCropTap,onAddCrop,onWater}) {
+  const locCrops=crops.filter(c=>!c.archived&&c.location===location);
+  return(
+    <Panel show={show} onClose={onClose} title={location} footer={<button onClick={onAddCrop} style={{width:"100%",padding:"14px",borderRadius:"12px",border:`1.5px dashed ${C.green}`,background:"transparent",color:C.greenMid,fontSize:"0.95rem",fontWeight:700,cursor:"pointer"}}>+ Log Another Crop Here</button>}>
+      <div style={{padding:"16px",display:"flex",flexDirection:"column",gap:"10px"}}>
+        {locCrops.length===0&&<div style={{textAlign:"center",padding:"3rem 0",color:C.textFaint}}><div style={{fontSize:"2.5rem",marginBottom:"8px"}}>🌱</div><div style={{fontStyle:"italic",fontSize:"0.9rem"}}>Nothing logged here yet.</div></div>}
+        {locCrops.map(crop=><CropCard key={crop.id} crop={crop} onClick={()=>onCropTap(crop)} onWater={onWater}/>)}
+      </div>
+    </Panel>
+  );
+}
+
+// ── Dashboard Location Card ────────────────────────────────────
+function LocCard({loc,crops,onClick}) {
+  const locCrops=crops.filter(c=>!c.archived&&c.location===loc);
+  if(!locCrops.length) return null;
+  const alerts=locCrops.filter(c=>{const s=c.feedSchedules||{};const fl=c.feedLog||[];return Object.entries(s).some(([n,d])=>{const l=[...fl].reverse().find(f=>f.nutrient===n);return l&&daysAgo(l.date)>=scheduleDays(d);});}).length;
+  const inWindow=locCrops.some(c=>hwStatus(c)?.inWindow);
+  const swatches=locCrops.slice(0,6).map(c=>cropAccent(c.name).from);
+  return(
+    <div onClick={onClick} style={{background:"white",borderRadius:"18px",overflow:"hidden",cursor:"pointer",border:`1.5px solid ${alerts>0?"#fcd34d":inWindow?"#c4b5fd":C.border}`,boxShadow:"0 2px 10px rgba(0,0,0,0.2)",userSelect:"none"}}>
+      <div style={{height:"3px",display:"flex"}}>{swatches.map((c,i)=><div key={i} style={{flex:1,background:c}}/>)}</div>
+      <div style={{padding:"14px 16px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"14px"}}>
+          <div>
+            <div style={{fontSize:"1rem",fontWeight:700,color:C.text,lineHeight:1.2}}>{loc}</div>
+            <div style={{fontSize:"0.75rem",color:C.textSub,marginTop:"2px"}}>{locCrops.length} crop{locCrops.length!==1?"s":""}</div>
+          </div>
+          <div style={{display:"flex",gap:"5px",alignItems:"center"}}>
+            {alerts>0&&<span style={{background:"#fbbf24",color:"white",fontSize:"0.65rem",fontWeight:700,padding:"2px 8px",borderRadius:"6px"}}>⚠ {alerts}</span>}
+            {inWindow&&<span style={{background:"#8b5cf6",color:"white",fontSize:"0.65rem",fontWeight:700,padding:"2px 8px",borderRadius:"6px"}}>🌾</span>}
+            <span style={{color:C.textFaint,fontSize:"0.9rem"}}>›</span>
+          </div>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
+          {locCrops.slice(0,4).map(c=>{
+            const acc=cropAccent(c.name);
+            const sc=STAGE_COLORS[c.stage]||STAGE_COLORS.Seedling;
+            const dInStage=daysSinceStage(c);
+            const s=c.feedSchedules||{};const fl=c.feedLog||[];
+            const nf=Object.entries(s).some(([n,d])=>{const l=[...fl].reverse().find(f=>f.nutrient===n);return l&&daysAgo(l.date)>=scheduleDays(d);});
+            return(
+              <div key={c.id} style={{display:"flex",alignItems:"flex-start",gap:"10px"}}>
+                <div style={{width:"3px",height:"46px",borderRadius:"2px",background:`linear-gradient(to bottom,${acc.from},${acc.to})`,flexShrink:0,marginTop:"4px"}}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.1em",color:C.textFaint,textTransform:"uppercase"}}>{c.name}</div>
+                  <div style={{fontFamily:F.serif,fontStyle:"italic",fontSize:"0.92rem",color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",lineHeight:1.2,margin:"1px 0"}}>{c.variety||<span style={{fontStyle:"normal",fontFamily:F.sans,color:C.textFaint,fontSize:"0.82rem"}}>No variety</span>}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:"5px"}}>
+                    <div style={{width:"6px",height:"6px",borderRadius:"50%",background:sc.dot,flexShrink:0}}/>
+                    <span style={{fontSize:"0.72rem",fontWeight:600,color:sc.text}}>{c.stage}</span>
+                    {dInStage!==null&&<span style={{fontSize:"0.68rem",color:C.textFaint}}>· {dInStage}d</span>}
+                  </div>
+                </div>
+                {nf&&<span style={{fontSize:"0.8rem",marginTop:"8px",flexShrink:0}}>🌿</span>}
+              </div>
+            );
+          })}
+          {locCrops.length>4&&<div style={{fontSize:"0.72rem",color:C.textFaint,paddingLeft:"13px"}}>+{locCrops.length-4} more</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Todo Panel ─────────────────────────────────────────────────
+function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onClose}) {
+  const [text,setText]=useState("");
+  const [due,setDue]=useState("");
+  const [confirmDelete,setConfirmDelete]=useState(null);
+  const t0=todayStr();
+  function genTasks(){
+    const tasks=[];
+    crops.filter(c=>!c.archived).forEach(c=>{
+      const s=c.feedSchedules||{};const fl=c.feedLog||[];
+      Object.entries(s).forEach(([nutrient,d])=>{
+        const last=[...fl].reverse().find(f=>f.nutrient===nutrient);if(!last)return;
+        const da=daysAgo(last.date);
+        if(da>=d) tasks.push({id:`feed-${c.id}-${nutrient}`,type:"feed",label:`Feed ${c.name}${c.variety?` · ${c.variety}`:""} — ${nutrient}`,sub:`${da-d}d overdue`,urgency:"overdue",crop:c});
+        else if(d-da<=3) tasks.push({id:`feed-${c.id}-${nutrient}`,type:"feed",label:`Feed ${c.name}${c.variety?` · ${c.variety}`:""} — ${nutrient}`,sub:`Due in ${d-da}d`,urgency:"soon",crop:c});
+      });
+      const ws=hwStatus(c);
+      if(ws?.inWindow) tasks.push({id:`hw-${c.id}`,type:"harvest",label:`Harvest ${c.name}${c.variety?` · ${c.variety}`:""}`,sub:"Window open · mark Done when finished",urgency:"today",crop:c});
+      else if(ws&&ws.daysToOpen<=5&&ws.daysToOpen>0) tasks.push({id:`hw-${c.id}`,type:"harvest",label:`Harvest window opens: ${c.name}`,sub:`In ${ws.daysToOpen}d · ${fmtDate(ws.openDate)}`,urgency:"soon",crop:c});
+      if(c.successionDays){const diff=daysUntil(succDate(c.seedDate,c.successionDays));if(diff!==null&&diff<=7) tasks.push({id:`suc-${c.id}`,type:"succession",label:`Succession sow ${c.name}${c.variety?` · ${c.variety}`:""}`,sub:diff<=0?"Sow now!":`Sow in ${diff}d`,urgency:diff<=0?"overdue":"today",crop:c});}
+    });
+    return tasks.sort((a,b)=>({overdue:0,today:1,soon:2}[a.urgency]-{overdue:0,today:1,soon:2}[b.urgency]));
+  }
+  const tasks=genTasks();
+  const pending=todos.filter(t=>!t.done);
+  const done=todos.filter(t=>t.done);
+  const uc={overdue:{bg:"#fffbeb",border:"#fcd34d",dot:"#f59e0b",text:"#92400e"},today:{bg:"#eff6ff",border:"#bfdbfe",dot:"#3b82f6",text:"#1e40af"},soon:{bg:"#f9fafb",border:C.border,dot:"#9ca3af",text:C.textSub}};
+  const icon={feed:"🌿",harvest:"🌾",succession:"🌱"};
+  return(
+    <>
+    <Panel show={show} onClose={onClose} title="To-Do">
+      <div style={{padding:"16px",display:"flex",flexDirection:"column",gap:"20px"}}>
+        {tasks.length>0&&(
+          <div>
+            <SLabel>Crop Schedule</SLabel>
+            <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+              {tasks.map(t=>{const u=uc[t.urgency];const acc=cropAccent(t.crop.name);return(
+                <div key={t.id} style={{display:"flex",gap:"10px",alignItems:"center",background:u.bg,borderRadius:"12px",padding:"12px 14px",border:`1.5px solid ${u.border}`}}>
+                  <div style={{width:"8px",height:"8px",borderRadius:"50%",background:u.dot,flexShrink:0}}/>
+                  <div style={{flex:1}}><div style={{fontSize:"0.9rem",fontWeight:600,color:C.text}} dangerouslySetInnerHTML={{__html:`${icon[t.type]} ${t.label}`}}/><div style={{fontSize:"0.78rem",color:u.text,marginTop:"2px"}}>{t.sub}</div></div>
+                  <div style={{width:"3px",alignSelf:"stretch",borderRadius:"2px",background:`linear-gradient(${acc.from},${acc.to})`,flexShrink:0}}/>
+                </div>
+              );})}
+            </div>
+          </div>
+        )}
+        <div>
+          <SLabel>My Tasks</SLabel>
+          <div style={{display:"flex",gap:"8px",marginBottom:"10px",flexWrap:"wrap"}}>
+            <input value={text} onChange={e=>setText(e.target.value)} placeholder="Add a task..."
+              onKeyDown={e=>{if(e.key==="Enter"&&text.trim()){onAddTodo({id:nextTodo++,text:text.trim(),done:false,due:due||null});setText("");setDue("");}}}
+              style={{flex:1,minWidth:"160px",padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:"white",outline:"none"}}/>
+            <input type="date" value={due} onChange={e=>setDue(e.target.value)} style={{padding:"12px 10px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.85rem",background:"white",outline:"none",color:C.textSub}}/>
+            <button onClick={()=>{if(text.trim()){onAddTodo({id:nextTodo++,text:text.trim(),done:false,due:due||null});setText("");setDue("");}}} style={{background:C.green,color:"white",border:"none",borderRadius:"10px",padding:"12px 18px",fontWeight:700,fontSize:"0.9rem",cursor:"pointer"}}>Add</button>
+          </div>
+          {pending.length===0&&tasks.length===0&&<div style={{textAlign:"center",padding:"1.5rem",color:C.textFaint,fontStyle:"italic",fontSize:"0.9rem"}}>You're all caught up!</div>}
+          <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+            {pending.map(t=>{const ov=t.due&&t.due<t0;const di=t.due?daysUntil(t.due):null;return(
+              <div key={t.id} style={{display:"flex",alignItems:"center",gap:"12px",background:ov?"#fffbeb":"white",borderRadius:"12px",padding:"12px 14px",border:`1.5px solid ${ov?"#fcd34d":C.border}`}}>
+                <div onClick={()=>onToggleTodo(t.id)} className="cb"/>
+                <div style={{flex:1}}><div style={{fontSize:"0.9rem",fontWeight:500,color:C.text}}>{t.text}</div>{t.due&&<div style={{fontSize:"0.75rem",color:ov?"#92400e":C.textFaint,marginTop:"2px"}}>{ov?`⚠ Due ${fmtDate(t.due)}`:di===0?"Due today":`Due ${fmtDate(t.due)}`}</div>}</div>
+                <button onClick={()=>setConfirmDelete(t)} style={{background:"transparent",border:"none",color:"#d1d5db",fontSize:"1.1rem",cursor:"pointer",padding:"0 4px",lineHeight:1}}>×</button>
+              </div>
+            );})}
+          </div>
+          {done.length>0&&(
+            <div style={{marginTop:"12px"}}>
+              <SLabel>Completed ({done.length})</SLabel>
+              {done.map(t=>(
+                <div key={t.id} style={{display:"flex",alignItems:"center",gap:"12px",background:"#f9fafb",borderRadius:"12px",padding:"10px 14px",opacity:0.65,marginBottom:"6px"}}>
+                  <div onClick={()=>onToggleTodo(t.id)} className="cb checked"><span style={{color:"white",fontSize:"0.8rem"}}>✓</span></div>
+                  <div style={{flex:1,fontSize:"0.9rem",color:C.textSub,textDecoration:"line-through"}}>{t.text}</div>
+                  <button onClick={()=>setConfirmDelete(t)} style={{background:"transparent",border:"none",color:"#d1d5db",fontSize:"1.1rem",cursor:"pointer",padding:"0"}}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </Panel>
+    <ConfirmSheet show={!!confirmDelete} title="Delete task?" message={confirmDelete?`"${confirmDelete.text}" will be permanently deleted.`:""} confirmLabel="Delete" danger onConfirm={()=>{if(confirmDelete){onDeleteTodo(confirmDelete.id);setConfirmDelete(null);}}} onCancel={()=>setConfirmDelete(null)}/>
+    </>
+  );
+}
+
+// ── Weather Panel ──────────────────────────────────────────────
+function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onClose}) {
+  if(!show) return null;
+  const today=weatherData?.today;
+  const forecast=weatherData?.forecast||[];
+  // Day-of-week label helper
+  const dayLabel=(dateStr,i)=>{
+    if(i===0) return "Tomorrow";
+    const d=new Date(dateStr+"T12:00:00");
+    return d.toLocaleDateString("en-US",{weekday:"long"});
+  };
+  return(
+    <Panel show={show} onClose={onClose} title="Weather">
+      <div style={{padding:"16px",display:"flex",flexDirection:"column",gap:"14px"}}>
+        {loading&&<div style={{textAlign:"center",padding:"3rem 0",color:C.textFaint}}>Fetching weather…</div>}
+        {error&&<div style={{background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:"12px",padding:"14px",fontSize:"0.85rem",color:"#991b1b"}}>{error}<div style={{marginTop:"8px"}}><button onClick={onRefresh} style={{background:"#ef4444",color:"white",border:"none",borderRadius:"8px",padding:"6px 14px",fontSize:"0.82rem",fontWeight:600,cursor:"pointer"}}>Retry</button></div></div>}
+        {today&&(
+          <div style={{background:`linear-gradient(135deg,#0ea5e9,#1e40af)`,borderRadius:"18px",padding:"22px 20px",color:"white",boxShadow:"0 4px 20px rgba(14,165,233,0.2)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"14px"}}>
+              <div>
+                <div style={{fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.14em",opacity:0.7,textTransform:"uppercase",marginBottom:"4px"}}>Today</div>
+                {location&&<div style={{fontSize:"0.85rem",opacity:0.9,fontWeight:500}}>📍 {location.city}, {location.state}</div>}
+              </div>
+              <div style={{fontSize:"3rem",lineHeight:1}}>{today.info.emoji}</div>
+            </div>
+            <div style={{display:"flex",alignItems:"baseline",gap:"12px",marginBottom:"6px"}}>
+              <div style={{fontSize:"3.4rem",fontWeight:700,lineHeight:1}}>{Math.round(today.currentTemp)}°</div>
+              <div style={{display:"flex",flexDirection:"column",gap:"2px"}}>
+                <div style={{fontSize:"0.82rem",opacity:0.9}}>High <strong>{Math.round(today.high)}°</strong></div>
+                <div style={{fontSize:"0.82rem",opacity:0.9}}>Low <strong>{Math.round(today.low)}°</strong></div>
+              </div>
+            </div>
+            <div style={{fontSize:"1rem",fontWeight:600,marginBottom:"12px"}}>{today.info.label}</div>
+            <div style={{display:"flex",gap:"10px",flexWrap:"wrap",fontSize:"0.82rem"}}>
+              <div style={{background:"rgba(255,255,255,0.15)",borderRadius:"8px",padding:"6px 12px"}}>💧 {Math.round(today.humidity)}% humidity</div>
+              {today.precipProb>0&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"8px",padding:"6px 12px"}}>☔ {today.precipProb}% chance of rain</div>}
+              {today.precip>0&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"8px",padding:"6px 12px"}}>{today.precip.toFixed(2)}" precip</div>}
+            </div>
+          </div>
+        )}
+        {forecast.length>0&&(
+          <>
+            <SLabel>7-Day Forecast</SLabel>
+            <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
+              {forecast.map((w,i)=>{
+                const hasRain=w.precipProb>20||w.precip>0;
+                return(
+                  <div key={w.date} style={{display:"flex",alignItems:"center",gap:"12px",background:"white",borderRadius:"12px",padding:"12px 14px",border:`1px solid ${hasRain?"#bfdbfe":C.border}`}}>
+                    <div style={{fontSize:"1.4rem",flexShrink:0,lineHeight:1}}>{w.info.emoji}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:"0.88rem",fontWeight:700,color:C.text}}>{dayLabel(w.date,i)}</div>
+                      <div style={{fontSize:"0.72rem",color:C.textSub,marginTop:"1px"}}>{w.info.label}</div>
+                      {hasRain&&<div style={{fontSize:"0.72rem",color:"#2563eb",fontWeight:600,marginTop:"2px"}}>☔ {w.precipProb}% · {w.precip.toFixed(2)}"</div>}
+                    </div>
+                    <div style={{textAlign:"right",flexShrink:0}}>
+                      <div style={{fontSize:"1rem",fontWeight:700,color:"#ea580c"}}>{Math.round(w.high)}°</div>
+                      <div style={{fontSize:"0.78rem",color:C.textFaint}}>{Math.round(w.low)}°</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+        {!loading&&!error&&!today&&<div style={{textAlign:"center",padding:"2rem",color:C.textFaint,fontStyle:"italic"}}>Set your ZIP code in Settings to enable weather.</div>}
+      </div>
+    </Panel>
+  );
+}
+
+// ── Report Panel ───────────────────────────────────────────────
+function ReportPanel({show,crops,onRestore,onClose}) {
+  const [sec,setSec]=useState("overview");
+  const [confirmRestore,setConfirmRestore]=useState(null);
+  const active=crops.filter(c=>!c.archived);
+  const archived=crops.filter(c=>c.archived);
+  const allHarvests=crops.flatMap(c=>c.harvests.map(h=>({...h,cropName:c.name,variety:c.variety,cropId:c.id})));
+  const harvestByCrop=crops.filter(c=>c.harvests.length>0).map(c=>{const t=harvestTotal(c);return{name:c.name,variety:c.variety,count:c.harvests.length,total:t};}).sort((a,b)=>(b.total?.value||0)-(a.total?.value||0));
+  const tabs=[["overview","Overview"],["harvests","Harvests"],["feeding","Feeding"],["watering","Watering"]];
+  return(
+    <>
+    <Panel show={show} onClose={onClose} title="Garden Report">
+      <div style={{display:"flex",background:"white",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,zIndex:10,overflowX:"auto"}}>
+        {tabs.map(([t,l])=><button key={t} onClick={()=>setSec(t)} style={{flex:1,padding:"13px 4px",border:"none",background:"transparent",fontSize:"0.78rem",fontWeight:600,color:sec===t?C.greenMid:C.textSub,borderBottom:`2px solid ${sec===t?C.green:"transparent"}`,cursor:"pointer",whiteSpace:"nowrap"}}>{l}</button>)}
+      </div>
+      <div style={{padding:"16px",display:"flex",flexDirection:"column",gap:"12px"}}>
+        {sec==="overview"&&(
+          <>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+              <div style={{background:"white",borderRadius:"14px",padding:"18px 14px",textAlign:"center",border:`1.5px solid ${C.border}`}}>
+                <div style={{fontSize:"2rem",fontWeight:700,color:C.greenDark,lineHeight:1}}>{active.length}</div>
+                <div style={{fontSize:"0.75rem",fontWeight:600,color:C.textSub,marginTop:"6px",letterSpacing:"0.06em",textTransform:"uppercase"}}>Active Crops</div>
+              </div>
+              <div onClick={archived.length>0?()=>setSec("archived"):undefined} style={{background:"white",borderRadius:"14px",padding:"18px 14px",textAlign:"center",border:`1.5px solid ${archived.length>0?C.green:C.border}`,cursor:archived.length>0?"pointer":"default"}}>
+                <div style={{fontSize:"2rem",fontWeight:700,color:archived.length>0?C.greenMid:C.textFaint,lineHeight:1}}>{archived.length}{archived.length>0&&<span style={{fontSize:"0.85rem",marginLeft:"6px",fontWeight:500}}>›</span>}</div>
+                <div style={{fontSize:"0.75rem",fontWeight:600,color:C.textSub,marginTop:"6px",letterSpacing:"0.06em",textTransform:"uppercase"}}>Archived Crops</div>
+              </div>
+            </div>
+            {archived.length>0&&<div style={{fontSize:"0.78rem",color:C.textFaint,textAlign:"center",fontStyle:"italic",marginTop:"4px"}}>Tap Archived Crops to view and restore past crops</div>}
+            {(()=>{
+              const byStage=STAGES.filter(s=>s!=="Done"&&s!=="Lost").map(s=>({stage:s,count:active.filter(c=>c.stage===s).length})).filter(x=>x.count>0);
+              if(!byStage.length) return null;
+              return(
+                <div style={{background:"white",borderRadius:"14px",padding:"16px",border:`1px solid ${C.border}`,marginTop:"8px"}}>
+                  <SLabel mt="0">Crops by Stage</SLabel>
+                  <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
+                    {byStage.map(({stage,count})=>{
+                      const sc=STAGE_COLORS[stage];
+                      const pct=Math.round((count/active.length)*100);
+                      return(
+                        <div key={stage} style={{display:"flex",alignItems:"center",gap:"12px"}}>
+                          <div style={{width:"10px",height:"10px",borderRadius:"50%",background:sc.dot,flexShrink:0}}/>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:"4px"}}>
+                              <span style={{fontSize:"0.85rem",fontWeight:600,color:C.text}}>{stage}</span>
+                              <span style={{fontSize:"0.82rem",fontWeight:700,color:C.textSub}}>{count}</span>
+                            </div>
+                            <div style={{height:"6px",background:"#f3f4f6",borderRadius:"3px",overflow:"hidden"}}>
+                              <div style={{width:`${pct}%`,height:"100%",background:sc.dot,borderRadius:"3px"}}/>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+          </>
+        )}
+        {sec==="archived"&&(
+          <>
+            <button onClick={()=>setSec("overview")} style={{background:"transparent",border:"none",color:C.textSub,fontSize:"0.85rem",fontWeight:600,cursor:"pointer",padding:"0 0 8px",display:"flex",alignItems:"center",gap:"4px"}}>‹ Back to Overview</button>
+            <SLabel mt="0">Archived Crops ({archived.length})</SLabel>
+            {archived.length===0&&<div style={{textAlign:"center",padding:"2rem",color:C.textFaint,fontStyle:"italic"}}>No archived crops.</div>}
+            <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+              {[...archived].sort((a,b)=>{
+                const aDate=a.stageHistory?.[a.stageHistory.length-1]?.date||a.seedDate||"";
+                const bDate=b.stageHistory?.[b.stageHistory.length-1]?.date||b.seedDate||"";
+                return bDate.localeCompare(aDate);
+              }).map(c=>{
+                const acc=cropAccent(c.name);
+                const isLost=c.stage==="Lost";
+                const lastStageDate=c.stageHistory?.[c.stageHistory.length-1]?.date;
+                const ht=harvestTotal(c);
+                return(
+                  <div key={c.id} style={{background:"white",borderRadius:"12px",padding:"14px",border:`1px solid ${isLost?"#fca5a5":C.border}`,borderLeft:`4px solid ${acc.from}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"6px"}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.1em",color:C.textFaint,textTransform:"uppercase"}}>{c.name}</div>
+                        <div style={{fontFamily:F.serif,fontStyle:"italic",fontSize:"1rem",color:C.text,lineHeight:1.2}}>{c.variety||<span style={{fontStyle:"normal",fontFamily:F.sans,color:C.textFaint,fontSize:"0.88rem"}}>No variety</span>}</div>
+                      </div>
+                      <Pill bg={isLost?"#fef2f2":"#f3f4f6"} color={isLost?"#991b1b":"#6b7280"}>{isLost?"🪦 Lost":"✅ Done"}</Pill>
+                    </div>
+                    <div style={{fontSize:"0.78rem",color:C.textSub,marginBottom:"8px"}}>
+                      📍 {c.location}
+                      {ht&&<span> · 🌿 {ht.value} {ht.unit}</span>}
+                      {lastStageDate&&<span> · {fmtDate(lastStageDate)}</span>}
+                    </div>
+                    <button onClick={()=>setConfirmRestore(c)} style={{background:"#f0fdf4",border:`1px solid ${C.green}`,borderRadius:"8px",padding:"6px 14px",fontSize:"0.8rem",fontWeight:700,color:C.greenDark,cursor:"pointer"}}>↺ Restore to Active</button>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+        {sec==="harvests"&&(
+          <>
+            {harvestByCrop.length===0&&<div style={{textAlign:"center",padding:"2rem",color:C.textFaint,fontStyle:"italic"}}>No harvests logged yet.</div>}
+            {harvestByCrop.length>0&&<><SLabel>Harvest by Crop</SLabel>{harvestByCrop.map((c,i)=><div key={i} style={{background:"white",borderRadius:"12px",padding:"14px",border:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:"0.92rem",fontWeight:600,color:C.text}}>{c.name}{c.variety&&<span style={{fontWeight:400,color:C.textSub}}> · {c.variety}</span>}</div><div style={{fontSize:"0.78rem",color:C.textSub,marginTop:"2px"}}>{c.count} harvest{c.count!==1?"s":""}</div></div>{c.total&&<div style={{fontSize:"1rem",fontWeight:700,color:C.greenDark}}>{c.total.value} {c.total.unit}</div>}</div>)}</>}
+            {allHarvests.length>0&&<><SLabel>Full Log</SLabel>{[...allHarvests].sort((a,b)=>b.date.localeCompare(a.date)).map((h,i)=><div key={i} style={{background:"white",borderRadius:"10px",padding:"12px 14px",borderLeft:"3px solid #8b5cf6",display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"6px"}}><div style={{flex:1}}><div style={{fontSize:"0.88rem",fontWeight:600,color:C.text}}>{h.cropName}{h.variety&&<span style={{fontWeight:400,color:C.textSub}}> · {h.variety}</span>}</div>{h.amount&&<div style={{fontSize:"0.82rem",color:C.greenDark,fontWeight:600,marginTop:"2px"}}>{h.amount} {h.unit}</div>}{h.note&&<div style={{fontSize:"0.8rem",color:C.textSub,marginTop:"2px"}}>{h.note}</div>}</div><span style={{fontSize:"0.72rem",color:C.textFaint,flexShrink:0,marginTop:"2px"}}>{fmtDate(h.date)}</span></div>)}</>}
+          </>
+        )}
+        {sec==="feeding"&&(
+          <>
+            {active.length===0&&<div style={{textAlign:"center",padding:"2rem",color:C.textFaint,fontStyle:"italic"}}>No active crops.</div>}
+            {active.map(c=>{
+              const fl=c.feedLog||[];
+              const schedules=c.feedSchedules||{};
+              if(fl.length===0&&Object.keys(schedules).length===0) return null;
+              const overdueList=Object.entries(schedules).filter(([n,d])=>{const l=[...fl].reverse().find(f=>f.nutrient===n);return l&&daysAgo(l.date)>=scheduleDays(d);});
+              const acc=cropAccent(c.name);
+              return(
+                <div key={c.id} style={{background:"white",borderRadius:"12px",border:`1px solid ${overdueList.length>0?"#fcd34d":C.border}`,borderLeft:`4px solid ${acc.from}`,overflow:"hidden"}}>
+                  <div style={{padding:"12px 14px",background:overdueList.length>0?"#fffbeb":"#fafafa",borderBottom:`1px solid ${C.border}`}}>
+                    <div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.1em",color:C.textFaint,textTransform:"uppercase"}}>{c.name}</div>
+                    <div style={{fontFamily:F.serif,fontStyle:"italic",fontSize:"1rem",color:C.text,lineHeight:1.2,marginTop:"2px"}}>{c.variety||<span style={{fontStyle:"normal",fontFamily:F.sans,color:C.textFaint,fontSize:"0.88rem"}}>No variety</span>}</div>
+                    <div style={{fontSize:"0.72rem",color:C.textSub,marginTop:"4px"}}>{fl.length} feeding{fl.length!==1?"s":""} logged · {Object.keys(schedules).length} schedule{Object.keys(schedules).length!==1?"s":""}</div>
+                  </div>
+                  {Object.keys(schedules).length>0&&<div style={{padding:"10px 14px",borderBottom:fl.length>0?`1px solid ${C.border}`:"none"}}>
+                    {Object.entries(schedules).map(([n,sched])=>{
+                      const d=scheduleDays(sched);
+                      const last=[...fl].reverse().find(f=>f.nutrient===n);
+                      const od=last&&daysAgo(last.date)>=d;
+                      return <div key={n} style={{fontSize:"0.78rem",color:od?"#92400e":C.greenMid,marginBottom:"3px"}}>{od?"⚠ ":"✓ "}<strong style={{color:C.text,fontWeight:600}}>{n}</strong> · every {d}d{last?` · last ${fmtDate(last.date)}`:" · never fed"}</div>;
+                    })}
+                  </div>}
+                  {fl.length>0&&<div style={{padding:"10px 14px"}}>
+                    <div style={{fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.06em",color:C.textFaint,textTransform:"uppercase",marginBottom:"6px"}}>Recent</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:"4px"}}>
+                      {[...fl].reverse().slice(0,5).map((f,i)=>(
+                        <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:"0.8rem"}}>
+                          <span style={{color:C.text,fontWeight:500}}>{f.nutrient}{f.qty&&<span style={{color:C.textSub,fontWeight:400}}> · {f.qty}</span>}{f.water&&<span style={{color:"#1d4ed8",fontWeight:400}}> · 💧 {f.water}</span>}</span>
+                          <span style={{color:C.textFaint,fontSize:"0.72rem",flexShrink:0,marginLeft:"8px"}}>{fmtDate(f.date)}</span>
+                        </div>
+                      ))}
+                      {fl.length>5&&<div style={{fontSize:"0.72rem",color:C.textFaint,fontStyle:"italic",marginTop:"2px"}}>+{fl.length-5} more</div>}
+                    </div>
+                  </div>}
+                </div>
+              );
+            }).filter(Boolean)}
+            {active.every(c=>(c.feedLog||[]).length===0&&Object.keys(c.feedSchedules||{}).length===0)&&<div style={{textAlign:"center",padding:"2rem",color:C.textFaint,fontStyle:"italic"}}>No feeding logged yet.</div>}
+          </>
+        )}
+        {sec==="watering"&&(
+          <>
+            {active.length===0&&<div style={{textAlign:"center",padding:"2rem",color:C.textFaint,fontStyle:"italic"}}>No active crops.</div>}
+            {active.map(c=>{
+              const wl=c.waterLog||[];
+              const last=wl.length?wl[wl.length-1]:null;
+              const days=last?daysAgo(last.date):null;
+              const acc=cropAccent(c.name);
+              // Calculate average interval between waterings
+              let avgInterval=null;
+              if(wl.length>=2){
+                const gaps=[];
+                for(let i=1;i<wl.length;i++){
+                  const g=Math.round((new Date(wl[i].date)-new Date(wl[i-1].date))/864e5);
+                  if(g>0) gaps.push(g);
+                }
+                if(gaps.length) avgInterval=Math.round(gaps.reduce((a,b)=>a+b,0)/gaps.length);
+              }
+              return(
+                <div key={c.id} style={{background:"white",borderRadius:"12px",border:`1px solid ${days!==null&&days>=3?"#93c5fd":C.border}`,borderLeft:`4px solid ${acc.from}`,overflow:"hidden"}}>
+                  <div style={{padding:"12px 14px",background:days!==null&&days>=3?"#eff6ff":"#fafafa",borderBottom:`1px solid ${C.border}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.1em",color:C.textFaint,textTransform:"uppercase"}}>{c.name}</div>
+                        <div style={{fontFamily:F.serif,fontStyle:"italic",fontSize:"1rem",color:C.text,lineHeight:1.2,marginTop:"2px"}}>{c.variety||<span style={{fontStyle:"normal",fontFamily:F.sans,color:C.textFaint,fontSize:"0.88rem"}}>No variety</span>}</div>
+                      </div>
+                      <span style={{fontSize:"0.72rem",fontWeight:700,color:days===null?C.textFaint:days===0?C.greenMid:days>=3?"#1d4ed8":C.textSub,whiteSpace:"nowrap"}}>{days===null?"Never":days===0?"Today":`${days}d ago`}</span>
+                    </div>
+                    <div style={{fontSize:"0.72rem",color:C.textSub,marginTop:"4px"}}>{wl.length} watering{wl.length!==1?"s":""} logged{avgInterval?` · avg every ${avgInterval}d`:""}</div>
+                  </div>
+                  {wl.length>0&&<div style={{padding:"10px 14px"}}>
+                    <div style={{fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.06em",color:C.textFaint,textTransform:"uppercase",marginBottom:"6px"}}>Recent</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:"6px"}}>
+                      {[...wl].reverse().slice(0,8).map((w,i)=>(
+                        <div key={i} style={{fontSize:"0.72rem",background:"#eff6ff",color:"#1d4ed8",padding:"3px 8px",borderRadius:"6px",fontWeight:600}}>💧 {fmtMon(w.date)}</div>
+                      ))}
+                      {wl.length>8&&<div style={{fontSize:"0.72rem",color:C.textFaint,padding:"3px 4px",fontStyle:"italic"}}>+{wl.length-8}</div>}
+                    </div>
+                  </div>}
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+    </Panel>
+    <ConfirmSheet show={!!confirmRestore} title="Restore this crop?" message={confirmRestore?`${confirmRestore.name}${confirmRestore.variety?` (${confirmRestore.variety})`:""} will be moved back to your active crops.`:""} confirmLabel="Restore" onConfirm={()=>{if(confirmRestore){onRestore(confirmRestore.id);setConfirmRestore(null);}}} onCancel={()=>setConfirmRestore(null)}/>
+    </>
+  );
+}
+
+// ── Main App ───────────────────────────────────────────────────
+function App() {
+  const [settings,setSettings]   = useState(()=>ls.get("garden:settings",null));
+  const [locations,setLocations] = useState(()=>ls.get("garden:locations",[]));
+  const [crops,setCrops]         = useState(()=>{
+    const raw=ls.get("garden:crops",[]);
+    // Migration: any crop with a numeric or missing ID gets a fresh unique string ID
+    // This prevents ID collisions from legacy data created before uid() was used
+    const seen=new Set();
+    return raw.map(c=>{
+      let id=c.id;
+      if(typeof id!=="string"||!id.startsWith("crop_")||seen.has(id)){
+        id=uid("crop");
+      }
+      seen.add(id);
+      return {...c,id};
+    });
+  });
+  const [todos,setTodos]         = useState(()=>ls.get("garden:todos",[]));
+  const [nutrients,setNutrients] = useState(()=>ls.get("garden:nutrients",DEFAULT_NUTRIENTS));
+  const [cropNames,setCropNames] = useState(()=>ls.get("garden:cropNames",DEFAULT_CROPS));
+  const [varieties,setVarieties] = useState(()=>ls.get("garden:varieties",{}));
+  const [weatherData,setWeatherData]=useState(null);
+  const [weatherLocation,setWeatherLocation]=useState(null);
+  const [weatherLoading,setWeatherLoading]=useState(false);
+  const [weatherError,setWeatherError]=useState("");
+
+  const loadWeather=async(zipCode)=>{
+    if(!zipCode||!/^\d{5}$/.test(zipCode)){setWeatherError("ZIP code required for weather");return;}
+    setWeatherLoading(true);setWeatherError("");
+    try{
+      const geo=await geocodeZip(zipCode);
+      if(!geo){setWeatherError("Could not look up that ZIP code");setWeatherLoading(false);return;}
+      setWeatherLocation(geo);
+      const raw=await fetchWeather(geo.lat,geo.lon);
+      if(!raw){setWeatherError("Weather data unavailable — check connection");setWeatherLoading(false);return;}
+      // Index 0 = today in the daily array
+      const today={
+        date:raw.daily.time[0],
+        currentTemp:raw.current.temperature_2m,
+        humidity:raw.current.relative_humidity_2m,
+        high:raw.daily.temperature_2m_max[0],
+        low:raw.daily.temperature_2m_min[0],
+        precip:raw.daily.precipitation_sum[0]||0,
+        precipProb:raw.daily.precipitation_probability_max?.[0]||0,
+        info:decodeWMO(raw.current.weather_code),
+      };
+      // Remaining days = forecast
+      const forecast=raw.daily.time.slice(1).map((d,i)=>({
+        date:d,
+        high:raw.daily.temperature_2m_max[i+1],
+        low:raw.daily.temperature_2m_min[i+1],
+        precip:raw.daily.precipitation_sum[i+1]||0,
+        precipProb:raw.daily.precipitation_probability_max?.[i+1]||0,
+        humidity:raw.daily.relative_humidity_2m_mean?.[i+1],
+        info:decodeWMO(raw.daily.weather_code[i+1]),
+      }));
+      setWeatherData({today,forecast});
+    }catch(e){setWeatherError("Weather fetch failed");}
+    setWeatherLoading(false);
+  };
+
+  useEffect(()=>{ if(settings?.zip) loadWeather(settings.zip); },[settings?.zip]);
+
+  useEffect(()=>{if(settings)ls.set("garden:settings",settings);},[settings]);
+  useEffect(()=>{ls.set("garden:locations",locations);},[locations]);
+  useEffect(()=>{ls.set("garden:crops",crops);},[crops]);
+  useEffect(()=>{ls.set("garden:todos",todos);},[todos]);
+  useEffect(()=>{ls.set("garden:nutrients",nutrients);},[nutrients]);
+  useEffect(()=>{ls.set("garden:cropNames",cropNames);},[cropNames]);
+  useEffect(()=>{ls.set("garden:varieties",varieties);},[varieties]);
+
+  const [view,setView]         = useState("dashboard");
+  const [selLoc,setSelLoc]     = useState(null);
+  const [selCrop,setSelCrop]   = useState(null);
+  const [editCrop,setEditCrop] = useState(null);
+
+  const t0=todayStr();
+  const todayW=weatherData?.today||null;
+  const active=crops.filter(c=>!c.archived);
+  const activeLocs=locations.filter(loc=>active.some(c=>c.location===loc));
+  const gardenName=settings?.gardenName||"My Garden";
+  const zone=settings?.zone||"";
+
+  if(!settings){
+    return <Wizard onComplete={(s,addCrop)=>{setSettings(s);setLocations(s.locations);if(addCrop)setView("addCrop");}}/>;
+  }
+
+  const saveCrop=(crop,newLocs)=>{
+    // Capture whether we're in edit mode at the time of the save
+    const initialCropBeingEdited=editCrop;
+    if(newLocs){setLocations(prev=>[...new Set([...prev,...newLocs])]);}
+    // Track crop name in database
+    if(crop.name){
+      const tc=titleCase(crop.name);
+      setCropNames(prev=>prev.map(n=>n.toLowerCase()).includes(tc.toLowerCase())?prev:[...prev,tc]);
+    }
+    // Track variety under this crop name
+    if(crop.name&&crop.variety){
+      const cn=titleCase(crop.name);
+      const tv=titleCase(crop.variety);
+      setVarieties(prev=>{
+        const existing=prev[cn]||[];
+        if(existing.map(v=>v.toLowerCase()).includes(tv.toLowerCase())) return prev;
+        return {...prev,[cn]:[...existing,tv]};
+      });
+    }
+    setCrops(cs=>{
+      // Defensive: if ID collides with an existing crop AND we're not editing it, force a new unique ID
+      const existingIdx=cs.findIndex(x=>x.id===crop.id);
+      const isEdit=!!(initialCropBeingEdited && initialCropBeingEdited.id===crop.id);
+      if(existingIdx>=0 && !isEdit){
+        // Collision on add — create a new crop with a guaranteed-unique ID
+        return [...cs,{...crop,id:uid("crop"),notes:[],harvests:[],feedLog:[],feedSchedules:{},stageHistory:[{stage:crop.stage||"Seedling",date:t0}],waterLog:[]}];
+      }
+      if(existingIdx<0){
+        return [...cs,{...crop,notes:[],harvests:[],feedLog:[],feedSchedules:{},stageHistory:[{stage:crop.stage||"Seedling",date:t0}],waterLog:[]}];
+      }
+      return cs.map(x=>{
+        if(x.id!==crop.id) return x;
+        if(x.stage!==crop.stage && !crop.archived){
+          const note={date:t0,text:`Stage changed to ${crop.stage}`,auto:true};
+          const sh=[...(x.stageHistory||[]),{stage:crop.stage,date:t0}];
+          return {...crop,stageHistory:sh,notes:[...(crop.notes||[]),note]};
+        }
+        return crop;
+      });
+    });
+    if(crop.archived){setView(selLoc?"location":"dashboard");setSelCrop(null);}
+    else{setView(editCrop?"crop":"dashboard");setEditCrop(null);}
+  };
+
+  const addNote=(id,text,auto=false)=>{
+    const e={date:t0,text,auto:auto||false,id:Date.now()+Math.random()};
+    setCrops(cs=>cs.map(c=>c.id===id?{...c,notes:[...c.notes,e]}:c));
+    setSelCrop(p=>p?.id===id?{...p,notes:[...p.notes,e]}:p);
+  };
+  const editNote=(cropId,noteIdx,newText)=>{
+    setCrops(cs=>cs.map(c=>{if(c.id!==cropId)return c;const notes=[...c.notes];notes[noteIdx]={...notes[noteIdx],text:newText,edited:true};return{...c,notes};}));
+    setSelCrop(p=>{if(!p||p.id!==cropId)return p;const notes=[...p.notes];notes[noteIdx]={...notes[noteIdx],text:newText,edited:true};return{...p,notes};});
+  };
+  const deleteNote=(cropId,noteIdx)=>{
+    setCrops(cs=>cs.map(c=>{
+      if(c.id!==cropId) return c;
+      const note=c.notes[noteIdx];
+      // If it's an auto stage-change note, roll back stage and timeline
+      if(note?.auto && note.text?.startsWith("Stage changed to ")){
+        const removedStage=note.text.replace("Stage changed to ","").trim();
+        const sh=[...(c.stageHistory||[])];
+        // Remove the matching stage history entry (most recent one with that stage & date)
+        const matchIdx=sh.findLastIndex?sh.findLastIndex(s=>s.stage===removedStage&&s.date===note.date):
+          (()=>{for(let i=sh.length-1;i>=0;i--) if(sh[i].stage===removedStage&&sh[i].date===note.date) return i;return -1;})();
+        if(matchIdx!==-1) sh.splice(matchIdx,1);
+        // Revert crop's current stage to last remaining stage in history (or Seedling)
+        const prevStage=sh.length?sh[sh.length-1].stage:"Seedling";
+        return{...c,stage:prevStage,stageHistory:sh,notes:c.notes.filter((_,i)=>i!==noteIdx)};
+      }
+      return{...c,notes:c.notes.filter((_,i)=>i!==noteIdx)};
+    }));
+    setSelCrop(p=>{
+      if(!p||p.id!==cropId) return p;
+      const note=p.notes[noteIdx];
+      if(note?.auto && note.text?.startsWith("Stage changed to ")){
+        const removedStage=note.text.replace("Stage changed to ","").trim();
+        const sh=[...(p.stageHistory||[])];
+        const matchIdx=(()=>{for(let i=sh.length-1;i>=0;i--) if(sh[i].stage===removedStage&&sh[i].date===note.date) return i;return -1;})();
+        if(matchIdx!==-1) sh.splice(matchIdx,1);
+        const prevStage=sh.length?sh[sh.length-1].stage:"Seedling";
+        return{...p,stage:prevStage,stageHistory:sh,notes:p.notes.filter((_,i)=>i!==noteIdx)};
+      }
+      return{...p,notes:p.notes.filter((_,i)=>i!==noteIdx)};
+    });
+  };
+  const logHarvest=(id,obj)=>{
+    const e={date:t0,...obj};
+    setCrops(cs=>cs.map(c=>c.id===id?{...c,harvests:[...c.harvests,e]}:c));
+    setSelCrop(p=>p?.id===id?{...p,harvests:[...p.harvests,e]}:p);
+  };
+  const editHarvest=(cropId,hIdx,updated)=>{
+    setCrops(cs=>cs.map(c=>{if(c.id!==cropId)return c;const harvests=[...c.harvests];harvests[hIdx]={...harvests[hIdx],...updated};return{...c,harvests};}));
+    setSelCrop(p=>{if(!p||p.id!==cropId)return p;const harvests=[...p.harvests];harvests[hIdx]={...harvests[hIdx],...updated};return{...p,harvests};});
+  };
+  const deleteHarvest=(cropId,hIdx)=>{
+    setCrops(cs=>cs.map(c=>c.id===cropId?{...c,harvests:c.harvests.filter((_,i)=>i!==hIdx)}:c));
+    setSelCrop(p=>p?.id===cropId?{...p,harvests:p.harvests.filter((_,i)=>i!==hIdx)}:p);
+  };
+  const restoreCrop=(id)=>{
+    setCrops(cs=>cs.map(c=>c.id===id?{...c,archived:false,stage:c.stageHistory?.[c.stageHistory.length-1]?.stage||"Vegetative"}:c));
+  };
+  const logFeed=(id,nutrient,qty,water,intervalDays)=>{
+    const entry={date:t0,nutrient,qty:qty||null,water:water||null};
+    // Build schedule object with defaults from this feeding so the form can pre-fill next time
+    const buildSched=(existing)=>{
+      if(!intervalDays) return existing||{};
+      const prev=existing?.[nutrient];
+      const prevObj=typeof prev==="object"?prev:{};
+      const qtyParts=qty?qty.split(" "):["",""];
+      const waterParts=water?water.split(" "):["",""];
+      return {...existing,[nutrient]:{days:intervalDays,qty:qtyParts[0]||prevObj.qty||"",unit:qtyParts.slice(1).join(" ")||prevObj.unit||"tbsp",water:waterParts[0]||prevObj.water||"",waterUnit:waterParts.slice(1).join(" ")||prevObj.waterUnit||"gal"}};
+    };
+    setCrops(cs=>cs.map(c=>{if(c.id!==id)return c;const ns=intervalDays?buildSched(c.feedSchedules):(c.feedSchedules||{});return{...c,lastFed:t0,feedLog:[...(c.feedLog||[]),entry],feedSchedules:ns};}));
+    setSelCrop(p=>{if(!p||p.id!==id)return p;const ns=intervalDays?buildSched(p.feedSchedules):(p.feedSchedules||{});return{...p,lastFed:t0,feedLog:[...(p.feedLog||[]),entry],feedSchedules:ns};});
+  };
+  const editFeed=(cropId,fIdx,updated)=>{
+    setCrops(cs=>cs.map(c=>{if(c.id!==cropId)return c;const fl=[...(c.feedLog||[])];fl[fIdx]={...fl[fIdx],...updated};return{...c,feedLog:fl};}));
+    setSelCrop(p=>{if(!p||p.id!==cropId)return p;const fl=[...(p.feedLog||[])];fl[fIdx]={...fl[fIdx],...updated};return{...p,feedLog:fl};});
+  };
+  const deleteFeed=(cropId,fIdx)=>{
+    setCrops(cs=>cs.map(c=>c.id===cropId?{...c,feedLog:(c.feedLog||[]).filter((_,i)=>i!==fIdx)}:c));
+    setSelCrop(p=>p?.id===cropId?{...p,feedLog:(p.feedLog||[]).filter((_,i)=>i!==fIdx)}:p);
+  };
+  const waterCrop=(id)=>{
+    const entry={date:t0};
+    setCrops(cs=>cs.map(c=>c.id===id?{...c,waterLog:[...(c.waterLog||[]),entry]}:c));
+    setSelCrop(p=>p?.id===id?{...p,waterLog:[...(p.waterLog||[]),entry]}:p);
+  };
+  const transplantCrop=(id,toLoc,date,inContainer,containerSize,newLocs)=>{
+    if(newLocs)setLocations(prev=>[...new Set([...prev,...newLocs])]);
+    const noteText=`Transplanted from ${crops.find(c=>c.id===id)?.location||"?"} to ${toLoc} on ${fmtDate(date)}${inContainer&&containerSize?` · ${containerSize}`:""}`;
+    setCrops(cs=>cs.map(c=>{if(c.id!==id)return c;const note={date:t0,text:noteText,auto:true};return{...c,location:toLoc,transplantDate:date,inContainer,containerSize:containerSize||"",notes:[...c.notes,note]};}));
+    setSelCrop(p=>{if(!p||p.id!==id)return p;const note={date:t0,text:noteText,auto:true};return{...p,location:toLoc,transplantDate:date,inContainer,containerSize:containerSize||"",notes:[...p.notes,note]};});
+  };
+  const changeStage=(id,stage)=>{
+    const note={date:t0,text:`Stage changed to ${stage}`,auto:true};
+    setCrops(cs=>cs.map(c=>{if(c.id!==id)return c;const sh=[...(c.stageHistory||[]),{stage,date:t0}];return{...c,stage,stageHistory:sh,notes:[...c.notes,note]};}));
+    setSelCrop(p=>{if(!p||p.id!==id)return p;const sh=[...(p.stageHistory||[]),{stage,date:t0}];return{...p,stage,stageHistory:sh,notes:[...p.notes,note]};});
+  };
+  const addNutrient=n=>setNutrients(ns=>ns.includes(n)?ns:[...ns,n]);
+  const addTodo=t=>setTodos(ts=>[...ts,t]);
+  const toggleTodo=id=>setTodos(ts=>ts.map(t=>t.id===id?{...t,done:!t.done}:t));
+  const deleteTodo=id=>setTodos(ts=>ts.filter(t=>t.id!==id));
+
+  const taskCount=active.filter(c=>{
+    const s=c.feedSchedules||{};const fl=c.feedLog||[];
+    const fo=Object.entries(s).some(([n,d])=>{const l=[...fl].reverse().find(f=>f.nutrient===n);return l&&daysAgo(l.date)>=scheduleDays(d);});
+    const ws=hwStatus(c);
+    const ss=c.successionDays&&c.seedDate&&daysUntil(succDate(c.seedDate,c.successionDays))<=7;
+    return fo||ws?.inWindow||ss;
+  }).length+todos.filter(t=>!t.done).length;
+
+  const syncedCrop=selCrop?crops.find(c=>c.id===selCrop.id)||selCrop:null;
+
+  return(
+    <div style={{width:"100%",height:"100%",background:C.bg,color:"white",position:"relative",overflow:"hidden"}}>
+      {/* Dashboard */}
+      <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",overflowY:"auto",WebkitOverflowScrolling:"touch",paddingBottom:"84px"}}>
+        <div style={{padding:"max(16px,env(safe-area-inset-top)) 18px 18px",flexShrink:0}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div>
+              {zone&&<div style={{fontSize:"0.6rem",fontWeight:700,letterSpacing:"0.18em",color:C.greenFg,textTransform:"uppercase",marginBottom:"4px",opacity:0.7}}>Zone {zone}</div>}
+              <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>{gardenName}</h1>
+              <div style={{fontSize:"0.78rem",color:C.dashSub,marginTop:"5px"}}>{active.length} active crop{active.length!==1?"s":""}{activeLocs.length>0?` · ${activeLocs.length} location${activeLocs.length!==1?"s":""}`:""}</div>
+            </div>
+            <div style={{display:"flex",gap:"8px",marginTop:"4px"}}>
+              {todayW&&<button onClick={()=>setView("weather")} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"12px",padding:"8px 12px",cursor:"pointer",color:"white",display:"flex",flexDirection:"column",alignItems:"center",gap:"2px"}}>
+                <span style={{fontSize:"1.2rem",lineHeight:1}}>{todayW.info.emoji}</span>
+                <span style={{fontSize:"0.68rem",fontWeight:600,color:C.dashSub}}>{Math.round(todayW.high)}°/{Math.round(todayW.low)}°</span>
+              </button>}
+              <button onClick={()=>setView("settings")} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"12px",padding:"10px 14px",cursor:"pointer",color:"rgba(255,255,255,0.55)",fontSize:"1.1rem",lineHeight:1}}>⚙</button>
+            </div>
+          </div>
+        </div>
+        <div style={{padding:"0 14px",display:"flex",flexDirection:"column",gap:"10px"}}>
+          {activeLocs.length===0?(
+            <div style={{textAlign:"center",padding:"5rem 0",color:"rgba(255,255,255,0.2)"}}>
+              <div style={{fontSize:"3rem",marginBottom:"12px"}}>🌱</div>
+              <div style={{fontSize:"0.95rem",marginBottom:"6px"}}>No crops logged yet.</div>
+              <div style={{fontSize:"0.78rem",opacity:0.7}}>Tap + Add Crop to get started.</div>
+            </div>
+          ):activeLocs.map(loc=><LocCard key={loc} loc={loc} crops={crops} onClick={()=>{setSelLoc(loc);setView("location");}}/>)}
+        </div>
+      </div>
+
+      {/* Bottom Nav */}
+      <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(14,21,14,0.97)",backdropFilter:"blur(24px)",borderTop:"1px solid rgba(255,255,255,0.06)",paddingBottom:"env(safe-area-inset-bottom)",display:"flex",alignItems:"stretch",zIndex:200}}>
+        <button onClick={()=>setView("todo")} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"3px",padding:"12px 8px",background:"none",border:"none",color:"rgba(255,255,255,0.45)",cursor:"pointer",position:"relative"}}>
+          <span style={{fontSize:"1.25rem",lineHeight:1}}>✓</span>
+          <span style={{fontSize:"0.6rem",fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase"}}>To-Do</span>
+          {taskCount>0&&<span style={{position:"absolute",top:"8px",right:"calc(50% - 22px)",background:C.amber,color:"white",borderRadius:"10px",minWidth:"18px",height:"18px",fontSize:"0.6rem",fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px"}}>{taskCount}</span>}
+        </button>
+        <button onClick={()=>{setEditCrop(null);setView("addCrop");}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"4px",padding:"10px 8px",background:"none",border:"none",cursor:"pointer"}}>
+          <div style={{width:"48px",height:"48px",borderRadius:"50%",background:C.green,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 20px rgba(34,197,94,0.3)"}}>
+            <span style={{fontSize:"1.6rem",color:"#052e16",lineHeight:1,marginTop:"-1px"}}>+</span>
+          </div>
+          <span style={{fontSize:"0.6rem",fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:C.green}}>Add Crop</span>
+        </button>
+        <button onClick={()=>setView("report")} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"3px",padding:"12px 8px",background:"none",border:"none",color:"rgba(255,255,255,0.45)",cursor:"pointer"}}>
+          <span style={{fontSize:"1.25rem",lineHeight:1}}>📊</span>
+          <span style={{fontSize:"0.6rem",fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase"}}>Report</span>
+        </button>
+      </div>
+
+      {/* Panels */}
+      <LocationPanel show={view==="location"} location={selLoc} crops={crops}
+        onClose={()=>setView("dashboard")} onCropTap={c=>{setSelCrop(c);setView("crop");}}
+        onAddCrop={()=>{setEditCrop(null);setView("addCrop");}} onWater={waterCrop}/>
+
+      <CropDetailPanel show={view==="crop"} crop={syncedCrop} allCrops={crops} locations={locations} nutrients={nutrients}
+        onClose={()=>setView(selLoc?"location":"dashboard")}
+        onEdit={()=>{setEditCrop(syncedCrop);setView("editCrop");}}
+        onMarkDone={c=>saveCrop({...c,stage:"Done",archived:true})}
+        onMarkLost={c=>saveCrop({...c,stage:"Lost",archived:true})}
+        onAddNote={addNote} onEditNote={editNote} onDeleteNote={deleteNote}
+        onLogHarvest={logHarvest} onEditHarvest={editHarvest} onDeleteHarvest={deleteHarvest}
+        onAddFeed={logFeed} onEditFeed={editFeed} onDeleteFeed={deleteFeed} onAddNutrient={addNutrient}
+        onTransplant={transplantCrop} onWater={waterCrop}/>
+
+      <CropFormPanel show={view==="addCrop"||view==="editCrop"} initial={view==="editCrop"?editCrop:null} locations={locations} cropNames={cropNames} varieties={varieties}
+        onSave={saveCrop} onClose={()=>setView(view==="editCrop"?"crop":(selLoc?"location":"dashboard"))}/>
+
+      <TodoPanel show={view==="todo"} crops={crops} todos={todos} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} onClose={()=>setView("dashboard")}/>
+      <WeatherPanel show={view==="weather"} weatherData={weatherData} location={weatherLocation} loading={weatherLoading} error={weatherError} onRefresh={()=>settings?.zip&&loadWeather(settings.zip)} onClose={()=>setView("dashboard")}/>
+      <ReportPanel show={view==="report"} crops={crops} onRestore={restoreCrop} onClose={()=>setView("dashboard")}/>
+      <SettingsPanel show={view==="settings"} settings={settings} locations={locations}
+        onSave={(s,locs)=>{setSettings(p=>({...p,...s}));setLocations(locs);setView("dashboard");}}
+        onClose={()=>setView("dashboard")}/>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
