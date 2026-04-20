@@ -556,7 +556,7 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
   const seedLabel=f.startType==="direct"?"Sow Date":f.startType==="clone"?"Date Acquired":"Seed Start Date";
   const iS={width:"100%",padding:"12px 14px",borderRadius:"10px",fontSize:"0.95rem",background:"white",outline:"none",boxSizing:"border-box"};
   return(
-    <Panel show={show} onClose={onClose} title={initial?"Edit Crop":"Add Crop"} footer={chosen?<Btn onClick={handleSave}>{initial?"Save Changes":"Add Crop"}</Btn>:null}>
+    <Panel show={show} onClose={onClose} title={initial?"Edit Crop":"Add Crop"} footer={chosen?<Btn onClick={handleSave}>{initial?"Save Changes":"Add Crop"}</Btn>:null} bottomBack>
       <div style={{padding:"16px",display:"flex",flexDirection:"column",gap:"14px"}}>
         {(f.name||f.variety)&&<div style={{background:`linear-gradient(135deg,${acc.from},${acc.to})`,borderRadius:"14px",padding:"16px"}}><div style={{fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.14em",color:"rgba(255,255,255,0.6)",textTransform:"uppercase",marginBottom:"4px"}}>{f.name||"Crop"}</div><div style={{fontFamily:F.serif,fontStyle:"italic",fontSize:"1.4rem",color:"white"}}>{f.variety||"Variety"}</div></div>}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px"}}>
@@ -1453,7 +1453,7 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onClose
   const icon={feed:"🌿",harvest:"🌾",succession:"🌱"};
   return(
     <>
-    <Panel show={show} onClose={onClose} title="To-Do">
+    <Panel show={show} onClose={onClose} title="To-Do" bottomBack>
       <div style={{padding:"16px",display:"flex",flexDirection:"column",gap:"20px"}}>
         {tasks.length>0&&(
           <div>
@@ -1595,7 +1595,7 @@ function ReportPanel({show,crops,onRestore,onClose}) {
   const tabs=[["overview","Overview"],["harvests","Harvests"],["feeding","Feeding"],["watering","Watering"]];
   return(
     <>
-    <Panel show={show} onClose={onClose} title="Garden Report">
+    <Panel show={show} onClose={onClose} title="Garden Report" bottomBack>
       <div style={{display:"flex",background:"white",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,zIndex:10,overflowX:"auto"}}>
         {tabs.map(([t,l])=><button key={t} onClick={()=>setSec(t)} style={{flex:1,padding:"13px 4px",border:"none",background:"transparent",fontSize:"0.78rem",fontWeight:600,color:sec===t?C.greenMid:C.textSub,borderBottom:`2px solid ${sec===t?C.green:"transparent"}`,cursor:"pointer",whiteSpace:"nowrap"}}>{l}</button>)}
       </div>
@@ -1918,6 +1918,8 @@ function App() {
   useEffect(()=>{ if(settings?.zip) loadWeather(settings.zip); },[settings?.zip]);
 
   const [view,setView]         = useState("dashboard");
+  const [prevView,setPrevView] = useState("dashboard");
+  const navigate = (v) => { setPrevView(view); setView(v); };
   const [selLoc,setSelLoc]     = useState(null);
   const [selCrop,setSelCrop]   = useState(null);
   const [editCrop,setEditCrop] = useState(null);
@@ -2136,7 +2138,7 @@ function App() {
           <span style={{fontSize:"0.6rem",fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase"}}>To-Do</span>
           {taskCount>0&&<span style={{position:"absolute",top:"8px",right:"calc(50% - 22px)",background:C.amber,color:"white",borderRadius:"10px",minWidth:"18px",height:"18px",fontSize:"0.6rem",fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px"}}>{taskCount}</span>}
         </button>
-        <button onClick={()=>{setEditCrop(null);setView("addCrop");}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"4px",padding:"10px 8px",background:"none",border:"none",cursor:"pointer"}}>
+        <button onClick={()=>{setEditCrop(null);navigate("addCrop");}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"4px",padding:"10px 8px",background:"none",border:"none",cursor:"pointer"}}>
           <div style={{width:"48px",height:"48px",borderRadius:"50%",background:C.green,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 20px rgba(34,197,94,0.3)"}}>
             <span style={{fontSize:"1.6rem",color:"#052e16",lineHeight:1,marginTop:"-1px"}}>+</span>
           </div>
@@ -2151,7 +2153,7 @@ function App() {
       {/* Panels */}
       <LocationPanel show={view==="location"} location={selLoc} crops={crops}
         onClose={()=>setView("dashboard")} onCropTap={c=>{setSelCrop(c);setView("crop");}}
-        onAddCrop={()=>{setEditCrop(null);setView("addCrop");}} onWater={waterCrop}/>
+        onAddCrop={()=>{setEditCrop(null);navigate("addCrop");}} onWater={waterCrop}/>
 
       <CropDetailPanel show={view==="crop"} crop={syncedCrop} allCrops={crops} locations={locations} nutrients={nutrients}
         onClose={()=>setView(selLoc?"location":"dashboard")}
@@ -2164,7 +2166,7 @@ function App() {
         onTransplant={transplantCrop} onWater={waterCrop}/>
 
       <CropFormPanel show={view==="addCrop"||view==="editCrop"} initial={view==="editCrop"?editCrop:null} locations={locations} cropNames={cropNames} varieties={varieties} defaultLocation={view==="addCrop"?selLoc:null}
-        onSave={saveCrop} onClose={()=>setView(view==="editCrop"?"crop":(selLoc?"location":"dashboard"))}/>
+        onSave={saveCrop} onClose={()=>setView(view==="editCrop"?"crop":view==="addCrop"&&selLoc&&prevView==="location"?"location":"dashboard")}/>
 
       <TodoPanel show={view==="todo"} crops={crops} todos={todos} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} onClose={()=>setView("dashboard")}/>
       <WeatherPanel show={view==="weather"} weatherData={weatherData} location={weatherLocation} loading={weatherLoading} error={weatherError} onRefresh={()=>settings?.zip&&loadWeather(settings.zip)} onClose={()=>setView("dashboard")}/>
