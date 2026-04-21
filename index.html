@@ -17,7 +17,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body, #root { margin: 0; padding: 0; height: 100%; overflow: hidden; max-width: 100vw; font-family: "Figtree", sans-serif; }
+  html, body, #root { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; max-width: 100vw; font-family: "Figtree", sans-serif; position: fixed; top: 0; left: 0; right: 0; bottom: 0; }
   body { background: #0e150e; overscroll-behavior: none; }
   * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
   input, select, button, textarea { font-family: "Figtree", sans-serif; max-width: 100%; }
@@ -427,7 +427,7 @@ function Wizard({onComplete}) {
 }
 
 // ── Settings Panel ─────────────────────────────────────────────
-function SettingsPanel({show,settings,locations,user,syncing,onSave,onSignOut,onClose}) {
+function SettingsPanel({show,settings,locations,crops,user,syncing,onSave,onSignOut,onClose}) {
   const [name,setName]=useState("");
   const [zone,setZone]=useState("");
   const [zip,setZip]=useState("");
@@ -435,10 +435,13 @@ function SettingsPanel({show,settings,locations,user,syncing,onSave,onSignOut,on
   const [newLoc,setNewLoc]=useState("");
   const [editIdx,setEditIdx]=useState(null);
   const [editVal,setEditVal]=useState("");
-  useEffect(()=>{if(show){setName(settings?.gardenName||"");setZone(settings?.zone||"");setZip(settings?.zip||"");setLocs(locations||[]);setEditIdx(null);}}, [show]);
+  const [confirmDeleteLoc,setConfirmDeleteLoc]=useState(null); // {idx, name}
+  useEffect(()=>{if(show){setName(settings?.gardenName||"");setZone(settings?.zone||"");setZip(settings?.zip||"");setLocs(locations||[]);setEditIdx(null);setConfirmDeleteLoc(null);}}, [show]);
   const addLoc=()=>{const v=newLoc.trim();if(v&&!locs.includes(v))setLocs(l=>[...l,v]);setNewLoc("");};
   const validZip=/^\d{5}$/.test(zip.trim());
+  const activeCrops=crops?.filter(c=>!c.archived)||[];
   return (
+    <>
     <Panel show={show} onClose={onClose} title="Settings" footer={<Btn onClick={()=>onSave({gardenName:name.trim()||"My Garden",zone,zip:zip.trim()},locs)} disabled={!validZip}>Save Settings</Btn>}>
       <div style={{padding:"16px",display:"flex",flexDirection:"column",gap:"20px"}}>
         {/* Account section */}
@@ -461,23 +464,31 @@ function SettingsPanel({show,settings,locations,user,syncing,onSave,onSignOut,on
         <div>
           <SLabel>Locations</SLabel>
           <div style={{display:"flex",flexDirection:"column",gap:"8px",marginBottom:"10px"}}>
-            {locs.map((l,i)=>(
-              <div key={i} style={{background:"white",borderRadius:"10px",padding:"12px 14px",border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:"10px"}}>
-                {editIdx===i?(
-                  <>
-                    <input value={editVal} onChange={e=>setEditVal(e.target.value)} autoFocus style={{flex:1,padding:"6px 10px",borderRadius:"8px",border:`1.5px solid ${C.green}`,fontSize:"0.9rem",outline:"none"}}/>
-                    <button onClick={()=>{if(editVal.trim())setLocs(ls=>ls.map((x,j)=>j===i?editVal.trim():x));setEditIdx(null);}} style={{background:C.green,color:"white",border:"none",borderRadius:"8px",padding:"6px 12px",fontWeight:700,fontSize:"0.85rem",cursor:"pointer"}}>Save</button>
-                    <button onClick={()=>setEditIdx(null)} style={{background:"transparent",border:"none",color:C.textFaint,cursor:"pointer",fontSize:"1rem"}}>✕</button>
-                  </>
-                ):(
-                  <>
-                    <span style={{flex:1,fontSize:"0.95rem",color:C.text}}>📍 {l}</span>
-                    <button onClick={()=>{setEditIdx(i);setEditVal(l);}} style={{background:"transparent",border:"none",color:C.textSub,cursor:"pointer",fontSize:"0.8rem",fontWeight:600}}>Edit</button>
-                    <button onClick={()=>setLocs(ls=>ls.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",color:"#fca5a5",cursor:"pointer",fontSize:"1rem"}}>×</button>
-                  </>
-                )}
-              </div>
-            ))}
+            {locs.map((l,i)=>{
+              const cropCount=activeCrops.filter(c=>c.location===l).length;
+              return(
+                <div key={i} style={{background:"white",borderRadius:"10px",padding:"12px 14px",border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:"10px"}}>
+                  {editIdx===i?(
+                    <>
+                      <input value={editVal} onChange={e=>setEditVal(e.target.value)} autoFocus style={{flex:1,padding:"6px 10px",borderRadius:"8px",border:`1.5px solid ${C.green}`,fontSize:"0.9rem",outline:"none"}}/>
+                      <button onClick={()=>{if(editVal.trim())setLocs(ls=>ls.map((x,j)=>j===i?editVal.trim():x));setEditIdx(null);}} style={{background:C.green,color:"white",border:"none",borderRadius:"8px",padding:"6px 10px",fontWeight:700,fontSize:"1rem",cursor:"pointer",lineHeight:1}}>✓</button>
+                      <button onClick={()=>setEditIdx(null)} style={{background:"transparent",border:"none",color:C.textFaint,cursor:"pointer",fontSize:"1rem"}}>✕</button>
+                    </>
+                  ):(
+                    <>
+                      <span style={{flex:1,fontSize:"0.95rem",color:C.text}}>📍 {l}</span>
+                      {cropCount>0&&<span style={{fontSize:"0.72rem",color:C.textFaint}}>{cropCount} crop{cropCount!==1?"s":""}</span>}
+                      <button onClick={()=>{setEditIdx(i);setEditVal(l);}} style={{background:"transparent",border:"none",color:C.textSub,cursor:"pointer",fontSize:"0.8rem",fontWeight:600}}>Edit</button>
+                      {cropCount>0?(
+                        <button title={`Move or archive ${cropCount} crop${cropCount!==1?"s":""} first`} style={{background:"transparent",border:"none",color:"#d1d5db",cursor:"not-allowed",fontSize:"1rem",opacity:0.4}}>×</button>
+                      ):(
+                        <button onClick={()=>setConfirmDeleteLoc({idx:i,name:l})} style={{background:"transparent",border:"none",color:"#fca5a5",cursor:"pointer",fontSize:"1rem"}}>×</button>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <div style={{display:"flex",gap:"8px"}}>
             <input value={newLoc} onChange={e=>setNewLoc(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addLoc();}} placeholder="Add a location..."
@@ -487,6 +498,8 @@ function SettingsPanel({show,settings,locations,user,syncing,onSave,onSignOut,on
         </div>
       </div>
     </Panel>
+    <ConfirmSheet show={!!confirmDeleteLoc} title="Delete location?" message={confirmDeleteLoc?`"${confirmDeleteLoc.name}" will be permanently removed from your locations.`:""} confirmLabel="Delete" danger onConfirm={()=>{if(confirmDeleteLoc){setLocs(ls=>ls.filter((_,j)=>j!==confirmDeleteLoc.idx));setConfirmDeleteLoc(null);}}} onCancel={()=>setConfirmDeleteLoc(null)}/>
+    </>
   );
 }
 
@@ -968,7 +981,7 @@ function TransplantSheet({show,crop,locations,onTransplant,onClose}) {
 }
 
 // ── Crop Detail Panel ──────────────────────────────────────────
-function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,onMarkDone,onMarkLost,onAddNote,onEditNote,onDeleteNote,onLogHarvest,onEditHarvest,onDeleteHarvest,onAddFeed,onEditFeed,onDeleteFeed,onAddNutrient,onTransplant,onWater}) {
+function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,onMarkDone,onMarkLost,onDeleteCrop,onAddNote,onEditNote,onDeleteNote,onLogHarvest,onEditHarvest,onDeleteHarvest,onAddFeed,onEditFeed,onDeleteFeed,onAddNutrient,onTransplant,onWater}) {
   const [tab,setTab]=useState("info");
   const [noteText,setNoteText]=useState("");
   const [editingNoteIdx,setEditingNoteIdx]=useState(null);
@@ -982,6 +995,7 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
   const [showTransplant,setShowTransplant]=useState(false);
   const [confirmDone,setConfirmDone]=useState(false);
   const [confirmLost,setConfirmLost]=useState(false);
+  const [confirmDelete,setConfirmDelete]=useState(false);
   const [editingFeedIdx,setEditingFeedIdx]=useState(null);
   const [editFeedData,setEditFeedData]=useState({nutrient:"",qty:"",unit:"tbsp",water:""});
   const [deleteFeedIdx,setDeleteFeedIdx]=useState(null);
@@ -1195,6 +1209,7 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
             <div style={{display:"flex",gap:"8px",marginTop:"4px"}}>
               <button onClick={()=>setConfirmDone(true)} style={{flex:1,padding:"9px",borderRadius:"10px",border:"none",background:"transparent",fontSize:"0.78rem",fontWeight:500,color:C.textFaint,cursor:"pointer",textDecoration:"underline"}}>Mark as Done</button>
               <button onClick={()=>setConfirmLost(true)} style={{flex:1,padding:"9px",borderRadius:"10px",border:"none",background:"transparent",fontSize:"0.78rem",fontWeight:500,color:C.textFaint,cursor:"pointer",textDecoration:"underline"}}>Mark as Lost</button>
+              <button onClick={()=>setConfirmDelete(true)} style={{flex:1,padding:"9px",borderRadius:"10px",border:"none",background:"transparent",fontSize:"0.78rem",fontWeight:500,color:"#dc2626",cursor:"pointer",textDecoration:"underline"}}>Delete</button>
             </div>
           </>
         )}
@@ -1299,6 +1314,7 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
     <TransplantSheet show={showTransplant} crop={crop} locations={locations} onTransplant={onTransplant} onClose={()=>setShowTransplant(false)}/>
     <ConfirmSheet show={confirmDone} title="Mark as Done?" message={`This will archive ${crop.name}${crop.variety?` (${crop.variety})`:""} and remove it from your active crops.`} confirmLabel="Mark Done" onConfirm={()=>{setConfirmDone(false);onMarkDone(crop);}} onCancel={()=>setConfirmDone(false)}/>
     <ConfirmSheet show={confirmLost} title="Mark as Lost?" message={`This will archive ${crop.name}${crop.variety?` (${crop.variety})`:""} as a loss.`} confirmLabel="Mark Lost" danger onConfirm={()=>{setConfirmLost(false);onMarkLost(crop);}} onCancel={()=>setConfirmLost(false)}/>
+    <ConfirmSheet show={confirmDelete} title="Delete crop?" message={`${crop.name}${crop.variety?` (${crop.variety})`:""} will be permanently deleted. This cannot be undone.`} confirmLabel="Delete" danger onConfirm={()=>{setConfirmDelete(false);onDeleteCrop(crop.id);}} onCancel={()=>setConfirmDelete(false)}/>
     <ConfirmSheet show={deleteNoteIdx!==null} title="Delete note?" message="This note will be permanently deleted." confirmLabel="Delete" danger onConfirm={()=>{if(deleteNoteIdx!==null){onDeleteNote(crop.id,deleteNoteIdx);setDeleteNoteIdx(null);}}} onCancel={()=>setDeleteNoteIdx(null)}/>
     <ConfirmSheet show={deleteHarvestIdx!==null} title="Delete harvest?" message="This harvest entry will be permanently deleted and removed from your totals." confirmLabel="Delete" danger onConfirm={()=>{if(deleteHarvestIdx!==null){onDeleteHarvest(crop.id,deleteHarvestIdx);setDeleteHarvestIdx(null);}}} onCancel={()=>setDeleteHarvestIdx(null)}/>
     </>
@@ -2152,9 +2168,9 @@ function App() {
   const syncedCrop=selCrop?crops.find(c=>c.id===selCrop.id)||selCrop:null;
 
   return(
-    <div style={{width:"100%",height:"100%",background:C.bg,color:"white",position:"relative",overflow:"hidden"}}>
-      {/* Dashboard */}
-      <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",overflowY:"auto",overflowX:"hidden",WebkitOverflowScrolling:"touch",paddingBottom:"calc(84px + max(16px,env(safe-area-inset-bottom)))"}}>
+    <div style={{width:"100%",height:"100%",background:C.bg,color:"white",display:"flex",flexDirection:"column",overflow:"hidden",position:"fixed",inset:0}}>
+      {/* Dashboard scroll area */}
+      <div style={{flex:1,overflowY:"auto",overflowX:"hidden",WebkitOverflowScrolling:"touch"}}>
         <div style={{padding:"max(16px,env(safe-area-inset-top)) 18px 18px",flexShrink:0}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div>
@@ -2192,7 +2208,7 @@ function App() {
       </div>
 
       {/* Bottom Nav */}
-      <div style={{position:"absolute",bottom:0,left:0,right:0,background:"rgba(14,21,14,0.97)",backdropFilter:"blur(24px)",borderTop:"1px solid rgba(255,255,255,0.06)",paddingBottom:"max(16px,env(safe-area-inset-bottom))",display:"flex",alignItems:"stretch",zIndex:200}}>
+      <div style={{flexShrink:0,background:"rgba(14,21,14,0.97)",backdropFilter:"blur(24px)",borderTop:"1px solid rgba(255,255,255,0.06)",paddingBottom:"max(16px,env(safe-area-inset-bottom))",display:"flex",alignItems:"stretch",zIndex:200}}>
         <button onClick={()=>setView("todo")} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"3px",padding:"12px 8px",background:"none",border:"none",color:"rgba(255,255,255,0.45)",cursor:"pointer",position:"relative"}}>
           <span style={{fontSize:"1.25rem",lineHeight:1}}>✓</span>
           <span style={{fontSize:"0.6rem",fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase"}}>To-Do</span>
@@ -2218,8 +2234,9 @@ function App() {
       <CropDetailPanel show={view==="crop"} crop={syncedCrop} allCrops={crops} locations={locations} nutrients={nutrients}
         onClose={()=>setView(selLoc?"location":"dashboard")}
         onEdit={()=>{setEditCrop(syncedCrop);setView("editCrop");}}
-        onMarkDone={c=>saveCrop({...c,stage:"Done",archived:true})}
-        onMarkLost={c=>saveCrop({...c,stage:"Lost",archived:true})}
+        onMarkDone={c=>{saveCrop({...c,stage:"Done",archived:true});setView(selLoc?"location":"dashboard");setSelCrop(null);}}
+        onMarkLost={c=>{saveCrop({...c,stage:"Lost",archived:true});setView(selLoc?"location":"dashboard");setSelCrop(null);}}
+        onDeleteCrop={id=>{setCrops(cs=>cs.filter(c=>c.id!==id));setView(selLoc?"location":"dashboard");setSelCrop(null);}}
         onAddNote={addNote} onEditNote={editNote} onDeleteNote={deleteNote}
         onLogHarvest={logHarvest} onEditHarvest={editHarvest} onDeleteHarvest={deleteHarvest}
         onAddFeed={logFeed} onEditFeed={editFeed} onDeleteFeed={deleteFeed} onAddNutrient={addNutrient}
@@ -2231,13 +2248,13 @@ function App() {
       <TodoPanel show={view==="todo"} crops={crops} todos={todos} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} onClose={()=>setView("dashboard")}/>
       <WeatherPanel show={view==="weather"} weatherData={weatherData} location={weatherLocation} loading={weatherLoading} error={weatherError} onRefresh={()=>settings?.zip&&loadWeather(settings.zip)} onClose={()=>setView("dashboard")}/>
       <ReportPanel show={view==="report"} crops={crops} onRestore={restoreCrop} onClose={()=>setView("dashboard")}/>
-      <SettingsPanel show={view==="settings"} settings={settings} locations={locations}
+      <SettingsPanel show={view==="settings"} settings={settings} locations={locations} crops={crops}
         user={user} syncing={syncing}
         onSave={(s,locs)=>{setSettings(p=>({...p,...s}));setLocations(locs);setView("dashboard");}}
         onSignOut={async()=>{
           await sb.auth.signOut();
-          // Wipe localStorage so next user on this device starts clean
           ["garden:settings","garden:locations","garden:crops","garden:todos","garden:nutrients","garden:cropNames","garden:varieties"].forEach(k=>localStorage.removeItem(k));
+          setView("dashboard");
           setUser(null);setDbLoaded(false);
         }}
         onClose={()=>setView("dashboard")}/>
