@@ -64,8 +64,9 @@ const C = {
 const F = { sans:"'Figtree',sans-serif", serif:"'Playfair Display',serif" };
 
 const USDA_ZONES = ["1a","1b","2a","2b","3a","3b","4a","4b","5a","5b","6a","6b","7a","7b","8a","8b","9a","9b","10a","10b","11a","11b","12a","12b","13a","13b"];
-const STAGES = ["Seedling","Vegetative","Flowering","Fruiting","Harvesting","Done","Lost"];
+const STAGES = ["Seed","Seedling","Vegetative","Flowering","Fruiting","Harvesting","Done","Lost"];
 const STAGE_COLORS = {
+  Seed:       {bg:"#fefce8",text:"#713f12",dot:"#ca8a04"},
   Seedling:   {bg:"#dcfce7",text:"#14532d",dot:"#22c55e"},
   Vegetative: {bg:"#d1fae5",text:"#064e3b",dot:"#10b981"},
   Flowering:  {bg:"#fef3c7",text:"#78350f",dot:"#f59e0b"},
@@ -505,7 +506,7 @@ function SettingsPanel({show,settings,locations,crops,user,syncing,onSave,onSign
 
 // ── Crop Form Panel ────────────────────────────────────────────
 function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocation,onSave,onClose}) {
-  const blank={name:"",variety:"",location:"",startType:null,seedDate:"",daysToMaturity:"",stage:"Seedling",successionDays:"",inContainer:false,containerSize:"",notes:[],harvests:[],feedLog:[],feedSchedules:{},stageHistory:[],waterLog:[],archived:false};
+  const blank={name:"",variety:"",location:"",startType:null,seedDate:"",daysToMaturity:"",stage:"Seed",successionDays:"",inContainer:false,containerSize:"",notes:[],harvests:[],feedLog:[],feedSchedules:{},stageHistory:[],waterLog:[],archived:false};
   const [f,setF]=useState(blank);
   const [locInput,setLocInput]=useState("");
   const [showNewLoc,setShowNewLoc]=useState(false);
@@ -564,7 +565,7 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
     if(!validate()) return;
     const now=todayStr();
     const crop={...f,name:titleCase(f.name),variety:f.variety?titleCase(f.variety):"",successionDays:f.successionDays?Number(f.successionDays):null,daysToMaturity:Number(f.daysToMaturity),id:initial?.id||uid("crop"),
-      stageHistory:initial?.stageHistory||[{stage:f.stage||"Seedling",date:now}],waterLog:initial?.waterLog||[]};
+      stageHistory:initial?.stageHistory||[{stage:f.stage||"Seedling",date:f.seedDate||now}],waterLog:initial?.waterLog||[]};
     onSave(crop,locs);
   }
   function addNewLocation(){const v=locInput.trim();if(v&&!locs.includes(v)){setLocs(l=>[...l,v]);set("location",v);}setLocInput("");setShowNewLoc(false);}
@@ -1190,8 +1191,6 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
                 </div>
               )}
             </div>
-            <ConfirmSheet show={deleteFeedIdx!==null} title="Delete feed entry?" message="This feed log entry will be permanently deleted." confirmLabel="Delete" danger onConfirm={()=>{if(deleteFeedIdx!==null){onDeleteFeed(crop.id,deleteFeedIdx);setDeleteFeedIdx(null);}}} onCancel={()=>setDeleteFeedIdx(null)}/>
-
             {/* Transplant */}
             <button onClick={()=>setShowTransplant(true)} style={{display:"flex",alignItems:"center",gap:"10px",background:"white",borderRadius:"12px",padding:"12px 14px",border:`1px solid ${C.border}`,cursor:"pointer",textAlign:"left",width:"100%"}}>
               <span style={{fontSize:"1.2rem"}}>📦</span>
@@ -1317,6 +1316,7 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
     <ConfirmSheet show={confirmDelete} title="Delete crop?" message={`${crop.name}${crop.variety?` (${crop.variety})`:""} will be permanently deleted. This cannot be undone.`} confirmLabel="Delete" danger onConfirm={()=>{setConfirmDelete(false);onDeleteCrop(crop.id);}} onCancel={()=>setConfirmDelete(false)}/>
     <ConfirmSheet show={deleteNoteIdx!==null} title="Delete note?" message="This note will be permanently deleted." confirmLabel="Delete" danger onConfirm={()=>{if(deleteNoteIdx!==null){onDeleteNote(crop.id,deleteNoteIdx);setDeleteNoteIdx(null);}}} onCancel={()=>setDeleteNoteIdx(null)}/>
     <ConfirmSheet show={deleteHarvestIdx!==null} title="Delete harvest?" message="This harvest entry will be permanently deleted and removed from your totals." confirmLabel="Delete" danger onConfirm={()=>{if(deleteHarvestIdx!==null){onDeleteHarvest(crop.id,deleteHarvestIdx);setDeleteHarvestIdx(null);}}} onCancel={()=>setDeleteHarvestIdx(null)}/>
+    <ConfirmSheet show={deleteFeedIdx!==null} title="Delete feed entry?" message="This feed log entry will be permanently deleted." confirmLabel="Delete" danger onConfirm={()=>{if(deleteFeedIdx!==null){onDeleteFeed(crop.id,deleteFeedIdx);setDeleteFeedIdx(null);}}} onCancel={()=>setDeleteFeedIdx(null)}/>
     </>
   );
 }
@@ -1367,21 +1367,104 @@ function CropCard({crop,onClick,onWater}) {
   );
 }
 
+// ── Feed All Sheet ─────────────────────────────────────────────
+function FeedAllSheet({show,location,crops,nutrients,onFeedAll,onClose}) {
+  const [input,setInput]=useState("");
+  const [qty,setQty]=useState("");
+  const [unit,setUnit]=useState("tbsp");
+  const [isLiquid,setIsLiquid]=useState(false);
+  const [waterQty,setWaterQty]=useState("");
+  const [waterUnit,setWaterUnit]=useState("gal");
+  const [showDrop,setShowDrop]=useState(false);
+  const [confirming,setConfirming]=useState(false);
+  const UNITS=["tsp","tbsp","cup","fl oz","ml","L","oz","lb","g"];
+  const WUNITS=["fl oz","cup","pt","qt","gal","ml","L"];
+  function reset(){setInput("");setQty("");setIsLiquid(false);setWaterQty("");setWaterUnit("gal");setShowDrop(false);setConfirming(false);}
+  const iStyle={padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:"white",outline:"none"};
+  // Rank nutrients by usage across all crops in this location
+  const usageCounts={};
+  crops.forEach(c=>(c.feedLog||[]).forEach(f=>{if(f.nutrient)usageCounts[f.nutrient]=(usageCounts[f.nutrient]||0)+1;}));
+  const stockSet=new Set(DEFAULT_NUTRIENTS.map(n=>n.toLowerCase()));
+  const ranked=[...nutrients].sort((a,b)=>{const ua=usageCounts[a]||0,ub=usageCounts[b]||0;if(ua!==ub)return ub-ua;return stockSet.has(a.toLowerCase())?1:-1;});
+  const filtered=ranked.filter(n=>n.toLowerCase().includes(input.toLowerCase()));
+  if(confirming){
+    const name=titleCase(input.trim());
+    return(
+      <Sheet show={show} onClose={()=>{reset();onClose();}} title="Feed All — Confirm">
+        <div style={{display:"flex",flexDirection:"column",gap:"16px",paddingTop:"8px"}}>
+          <div style={{background:"#fffbeb",borderRadius:"12px",padding:"14px",border:"1px solid #fcd34d"}}>
+            <div style={{fontSize:"0.88rem",fontWeight:700,color:"#92400e",marginBottom:"4px"}}>Apply to all {crops.length} crop{crops.length!==1?"s":""} in {location}</div>
+            <div style={{fontSize:"0.9rem",color:"#92400e"}}><strong>{name}</strong>{qty?` · ${qty} ${unit}`:""}{isLiquid&&waterQty?` · 💧 ${waterQty} ${waterUnit}`:""}</div>
+          </div>
+          <Btn onClick={()=>{onFeedAll(crops.map(c=>c.id),name,qty?`${qty} ${unit}`:null,(isLiquid&&waterQty)?`${waterQty} ${waterUnit}`:null);reset();onClose();}}>Confirm — Feed All</Btn>
+          <button onClick={()=>setConfirming(false)} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:"12px",padding:"12px",fontSize:"0.88rem",color:C.textSub,cursor:"pointer"}}>Back</button>
+        </div>
+      </Sheet>
+    );
+  }
+  return(
+    <Sheet show={show} onClose={()=>{reset();onClose();}} title={`Feed All — ${location}`}>
+      <div style={{display:"flex",flexDirection:"column",gap:"14px",paddingTop:"8px"}}>
+        <div style={{fontSize:"0.82rem",color:C.textSub,background:"#f9fafb",borderRadius:"10px",padding:"10px 12px"}}>This will log a feeding for all <strong>{crops.length}</strong> crop{crops.length!==1?"s":""} in <strong>{location}</strong>.</div>
+        <div style={{position:"relative"}}>
+          <div style={{fontSize:"0.78rem",fontWeight:600,color:C.textSub,marginBottom:"6px"}}>Nutrient / Fertilizer</div>
+          <input value={input} onChange={e=>{setInput(e.target.value);setShowDrop(true);}} onFocus={()=>setShowDrop(true)} onBlur={()=>setTimeout(()=>setShowDrop(false),180)} placeholder="Type or choose..." style={{...iStyle,width:"100%"}}/>
+          {showDrop&&<div style={{position:"absolute",top:"100%",left:0,right:0,background:"white",border:`1.5px solid ${C.border}`,borderRadius:"10px",boxShadow:"0 8px 24px rgba(0,0,0,0.12)",zIndex:50,maxHeight:"200px",overflowY:"auto",marginTop:"4px"}}>
+            {(input.trim()?filtered:ranked).map(n=>(
+              <div key={n} onMouseDown={()=>{setInput(n);setShowDrop(false);}} style={{padding:"10px 14px",cursor:"pointer",fontSize:"0.9rem",color:C.text,borderBottom:`1px solid #f9fafb`}}>{n}</div>
+            ))}
+          </div>}
+        </div>
+        <div>
+          <div style={{fontSize:"0.78rem",fontWeight:600,color:C.textSub,marginBottom:"6px"}}>Quantity <span style={{color:C.textFaint,fontWeight:400}}>(optional)</span></div>
+          <div style={{display:"flex",gap:"8px"}}>
+            <input type="number" min="0" step="any" value={qty} onChange={e=>setQty(e.target.value)} placeholder="e.g. 2" style={{...iStyle,flex:1}}/>
+            <select value={unit} onChange={e=>setUnit(e.target.value)} style={{...iStyle,color:C.textSub,padding:"12px 10px"}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
+          </div>
+        </div>
+        <div onClick={()=>setIsLiquid(v=>!v)} style={{display:"flex",alignItems:"center",gap:"12px",padding:"12px 14px",background:isLiquid?"#eff6ff":"#f9fafb",borderRadius:"10px",border:`1.5px solid ${isLiquid?"#93c5fd":C.border}`,cursor:"pointer",userSelect:"none"}}>
+          <div className={`cb ${isLiquid?"checked":""}`}>{isLiquid&&<span style={{color:"white",fontSize:"0.8rem"}}>✓</span>}</div>
+          <div><div style={{fontSize:"0.92rem",fontWeight:600,color:C.text}}>Diluted in water</div></div>
+        </div>
+        {isLiquid&&<div style={{display:"flex",gap:"8px"}}>
+          <input type="number" min="0" step="any" value={waterQty} onChange={e=>setWaterQty(e.target.value)} placeholder="e.g. 1" style={{...iStyle,flex:1}}/>
+          <select value={waterUnit} onChange={e=>setWaterUnit(e.target.value)} style={{...iStyle,color:C.textSub,padding:"12px 10px"}}>{WUNITS.map(u=><option key={u}>{u}</option>)}</select>
+        </div>}
+        <Btn onClick={()=>setConfirming(true)} disabled={!input.trim()}>Review & Confirm</Btn>
+      </div>
+    </Sheet>
+  );
+}
+
 // ── Location Panel ─────────────────────────────────────────────
-function LocationPanel({show,location,crops,onClose,onCropTap,onAddCrop,onWater}) {
+function LocationPanel({show,location,crops,nutrients,onClose,onCropTap,onAddCrop,onWater,onWaterAll,onFeedAll}) {
   const locCrops=crops.filter(c=>!c.archived&&c.location===location);
-  const AddBtn=(
-    <button onClick={onAddCrop} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:"10px",width:"100%",padding:"13px",borderRadius:"14px",border:"none",background:C.green,color:"white",fontSize:"0.95rem",fontWeight:700,cursor:"pointer",boxShadow:"0 4px 14px rgba(34,197,94,0.3)"}}>
-      <span style={{fontSize:"1.3rem",lineHeight:1}}>+</span> Add Crop Here
-    </button>
+  const [confirmWaterAll,setConfirmWaterAll]=useState(false);
+  const [showFeedAll,setShowFeedAll]=useState(false);
+  const footer=(
+    <div style={{display:"flex",gap:"8px",width:"100%"}}>
+      <button onClick={()=>setConfirmWaterAll(true)} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:"6px",padding:"12px 8px",borderRadius:"12px",border:"none",background:"#3b82f6",color:"white",fontSize:"0.82rem",fontWeight:700,cursor:"pointer"}}>
+        💧 Water All
+      </button>
+      <button onClick={onAddCrop} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:"6px",padding:"12px 8px",borderRadius:"12px",border:"none",background:C.green,color:"white",fontSize:"0.82rem",fontWeight:700,cursor:"pointer",boxShadow:"0 2px 10px rgba(34,197,94,0.3)"}}>
+        <span style={{fontSize:"1.1rem",lineHeight:1}}>+</span> Add Crop
+      </button>
+      <button onClick={()=>setShowFeedAll(true)} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:"6px",padding:"12px 8px",borderRadius:"12px",border:"none",background:"#f59e0b",color:"white",fontSize:"0.82rem",fontWeight:700,cursor:"pointer"}}>
+        🌿 Feed All
+      </button>
+    </div>
   );
   return(
-    <Panel show={show} onClose={onClose} title={location} footer={AddBtn} bottomBack>
+    <>
+    <Panel show={show} onClose={onClose} title={location} footer={footer} bottomBack>
       <div style={{padding:"16px",display:"flex",flexDirection:"column",gap:"10px"}}>
         {locCrops.length===0&&<div style={{textAlign:"center",padding:"3rem 0",color:C.textFaint}}><div style={{fontSize:"2.5rem",marginBottom:"8px"}}>🌱</div><div style={{fontStyle:"italic",fontSize:"0.9rem"}}>Nothing logged here yet.</div></div>}
         {locCrops.map(crop=><CropCard key={crop.id} crop={crop} onClick={()=>onCropTap(crop)} onWater={onWater}/>)}
       </div>
     </Panel>
+    <ConfirmSheet show={confirmWaterAll} title="Water all crops?" message={`This will log a watering for all ${locCrops.length} crop${locCrops.length!==1?"s":""} in ${location}.`} confirmLabel="Water All" onConfirm={()=>{onWaterAll(locCrops.map(c=>c.id));setConfirmWaterAll(false);}} onCancel={()=>setConfirmWaterAll(false)}/>
+    <FeedAllSheet show={showFeedAll} location={location} crops={locCrops} nutrients={nutrients} onFeedAll={onFeedAll} onClose={()=>setShowFeedAll(false)}/>
+    </>
   );
 }
 
@@ -2048,9 +2131,10 @@ function App() {
       return cs.map(x=>{
         if(x.id!==crop.id) return x;
         if(x.stage!==crop.stage && !crop.archived){
-          const note={date:t0,text:`Stage changed to ${crop.stage}`,auto:true};
+          const isGermination=crop.stage==="Seedling" && x.stage==="Seed";
+          const stageNote={date:t0,text:isGermination?"Seed germinated 🌱":`Stage changed to ${crop.stage}`,auto:true};
           const sh=[...(x.stageHistory||[]),{stage:crop.stage,date:t0}];
-          return {...crop,stageHistory:sh,notes:[...(crop.notes||[]),note]};
+          return {...crop,stageHistory:sh,notes:[...(crop.notes||[]),stageNote]};
         }
         return crop;
       });
@@ -2081,7 +2165,7 @@ function App() {
           (()=>{for(let i=sh.length-1;i>=0;i--) if(sh[i].stage===removedStage&&sh[i].date===note.date) return i;return -1;})();
         if(matchIdx!==-1) sh.splice(matchIdx,1);
         // Revert crop's current stage to last remaining stage in history (or Seedling)
-        const prevStage=sh.length?sh[sh.length-1].stage:"Seedling";
+        const prevStage=sh.length?sh[sh.length-1].stage:"Seed";
         return{...c,stage:prevStage,stageHistory:sh,notes:c.notes.filter((_,i)=>i!==noteIdx)};
       }
       return{...c,notes:c.notes.filter((_,i)=>i!==noteIdx)};
@@ -2094,7 +2178,7 @@ function App() {
         const sh=[...(p.stageHistory||[])];
         const matchIdx=(()=>{for(let i=sh.length-1;i>=0;i--) if(sh[i].stage===removedStage&&sh[i].date===note.date) return i;return -1;})();
         if(matchIdx!==-1) sh.splice(matchIdx,1);
-        const prevStage=sh.length?sh[sh.length-1].stage:"Seedling";
+        const prevStage=sh.length?sh[sh.length-1].stage:"Seed";
         return{...p,stage:prevStage,stageHistory:sh,notes:p.notes.filter((_,i)=>i!==noteIdx)};
       }
       return{...p,notes:p.notes.filter((_,i)=>i!==noteIdx)};
@@ -2142,6 +2226,14 @@ function App() {
     const entry={date:t0};
     setCrops(cs=>cs.map(c=>c.id===id?{...c,waterLog:[...(c.waterLog||[]),entry]}:c));
     setSelCrop(p=>p?.id===id?{...p,waterLog:[...(p.waterLog||[]),entry]}:p);
+  };
+  const waterAll=(ids)=>{
+    const entry={date:t0};
+    setCrops(cs=>cs.map(c=>ids.includes(c.id)?{...c,waterLog:[...(c.waterLog||[]),entry]}:c));
+  };
+  const feedAll=(ids,nutrient,qty,water)=>{
+    const entry={date:t0,nutrient,qty:qty||null,water:water||null};
+    setCrops(cs=>cs.map(c=>ids.includes(c.id)?{...c,feedLog:[...(c.feedLog||[]),entry]}:c));
   };
   const transplantCrop=(id,toLoc,date,inContainer,containerSize,newLocs)=>{
     if(newLocs)setLocations(prev=>[...new Set([...prev,...newLocs])]);
@@ -2237,9 +2329,10 @@ function App() {
       </div>
 
       {/* Panels */}
-      <LocationPanel show={view==="location"} location={selLoc} crops={crops}
+      <LocationPanel show={view==="location"} location={selLoc} crops={crops} nutrients={nutrients}
         onClose={()=>setView("dashboard")} onCropTap={c=>{setSelCrop(c);setView("crop");}}
-        onAddCrop={()=>{setEditCrop(null);navigate("addCrop");}} onWater={waterCrop}/>
+        onAddCrop={()=>{setEditCrop(null);navigate("addCrop");}} onWater={waterCrop}
+        onWaterAll={waterAll} onFeedAll={feedAll}/>
 
       <CropDetailPanel show={view==="crop"} crop={syncedCrop} allCrops={crops} locations={locations} nutrients={nutrients}
         onClose={()=>setView(selLoc?"location":"dashboard")}
