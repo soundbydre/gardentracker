@@ -172,11 +172,28 @@ const daysSinceStage = crop => { if(!crop.stageHistory||!crop.stageHistory.lengt
 
 function hwStatus(crop) {
   if(crop.stage==="Done"||crop.stage==="Lost") return null;
-  const ref = crop.startType==="direct" ? crop.seedDate : (crop.transplantDate||crop.seedDate);
-  if(!ref||!crop.daysToMaturity) return null;
+  if(!crop.daysToMaturity) return null;
+  let ref;
+  if(crop.startType==="direct"){
+    // Count from germination (Seedling stage date in stageHistory)
+    const seedlingEntry=(crop.stageHistory||[]).find(s=>s.stage==="Seedling");
+    if(seedlingEntry){
+      ref=seedlingEntry.date;
+    } else if(crop.stage==="Seed"){
+      return null; // Not yet germinated — no harvest window
+    } else {
+      // Old crop data — no Seedling entry but past Seed stage; fall back to seedDate
+      ref=crop.seedDate;
+    }
+  } else {
+    // For indoor starts: only count from transplant date — no harvest window until transplanted
+    if(!crop.transplantDate) return null;
+    ref=crop.transplantDate;
+  }
+  if(!ref) return null;
   const mat=parseDate(ref); mat.setDate(mat.getDate()+Number(crop.daysToMaturity));
   const open=new Date(mat); open.setDate(open.getDate()-7);
-  const now=new Date(); now.setHours(0,0,0,0); // compare at local midnight
+  const now=new Date(); now.setHours(0,0,0,0);
   const matStr=`${mat.getFullYear()}-${String(mat.getMonth()+1).padStart(2,'0')}-${String(mat.getDate()).padStart(2,'0')}`;
   const openStr=`${open.getFullYear()}-${String(open.getMonth()+1).padStart(2,'0')}-${String(open.getDate()).padStart(2,'0')}`;
   return { inWindow:now>=open, daysToOpen:Math.ceil((open-now)/864e5),
@@ -532,10 +549,6 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
       if(!e||Object.keys(e).length===0) return e;
       const ne={...e};
       if(k==="name"&&v&&v.trim()) delete ne.name;
-      if(k==="location"&&v) delete ne.location;
-      if(k==="startType"&&v) delete ne.startType;
-      if(k==="seedDate"&&v) delete ne.seedDate;
-      if(k==="daysToMaturity"&&v) delete ne.dtm;
       if(k==="containerSize"&&v&&v.trim()) delete ne.cs;
       if(k==="inContainer"&&!v) delete ne.cs;
       return ne;
@@ -560,7 +573,8 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
     setErrors({});setShowNewLoc(false);setLocInput("");
   },[show,locations,initial]);
   const acc=cropAccent(f.name);
-  const matPreview=f.seedDate&&f.daysToMaturity?harvestFmt(f.startType==="direct"?f.seedDate:(f.transplantDate||f.seedDate),f.daysToMaturity):null;
+  const harvestRef=f.startType==="direct"?f.seedDate:(f.startType==="indoor"?f.transplantDate:f.seedDate);
+  const matPreview=harvestRef&&f.daysToMaturity?harvestFmt(harvestRef,f.daysToMaturity):null;
   const chosen=f.startType!==null;
   function validate(){
     const e={};
@@ -568,7 +582,6 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
     if(!f.location) e.location=true;
     if(!f.startType) e.startType=true;
     if(!f.seedDate) e.seedDate=true;
-    if(!f.daysToMaturity) e.dtm=true;
     if(f.inContainer&&!f.containerSize.trim()) e.cs=true;
     setErrors(e); return Object.keys(e).length===0;
   }
@@ -582,7 +595,7 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
   function addNewLocation(){const v=locInput.trim();if(v&&!locs.includes(v)){setLocs(l=>[...l,v]);set("location",v);}setLocInput("");setShowNewLoc(false);}
   const startTypes=[
     {val:"direct",label:"Direct Sown",sub:"Seeded directly into its final spot",icon:"🌱"},
-    {val:"indoor",label:"Started Indoors",sub:"Seeds started under lights or near a window",icon:"💡"},
+    {val:"indoor",label:"Started Indoors",sub:"Seeds started indoors to be transplanted later",icon:"💡"},
     {val:"clone",label:"Purchased / Clone",sub:"Seedling, clone, or transplant from elsewhere",icon:"✂"},
   ];
   const seedLabel=f.startType==="direct"?"Sow Date":f.startType==="clone"?"Date Acquired":"Seed Start Date";
@@ -675,8 +688,8 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
                 <input type="date" value={f.seedDate} onChange={e=>set("seedDate",e.target.value)} style={{...iS,border:`1.5px solid ${errors.seedDate?"#fca5a5":C.border}`}}/>
               </div>
               <div>
-                <div style={{fontSize:"0.78rem",fontWeight:600,color:errors.dtm?"#ef4444":C.textSub,marginBottom:"6px"}}>Days to Maturity <span style={{color:C.red}}>*</span></div>
-                <input type="number" value={f.daysToMaturity} onChange={e=>set("daysToMaturity",e.target.value)} placeholder="e.g. 85" style={{...iS,border:`1.5px solid ${errors.dtm?"#fca5a5":C.border}`}}/>
+                <div style={{fontSize:"0.78rem",fontWeight:600,color:C.textSub,marginBottom:"6px"}}>Days to Maturity <span style={{color:C.textFaint,fontWeight:400}}>(optional)</span></div>
+                <input type="number" value={f.daysToMaturity} onChange={e=>set("daysToMaturity",e.target.value)} placeholder="e.g. 85" style={{...iS,border:`1.5px solid ${C.border}`}}/>
               </div>
             </div>
             {matPreview&&<div style={{background:"#faf5ff",borderRadius:"10px",padding:"10px 14px",border:"1px solid #e9d5ff",fontSize:"0.82rem",color:"#6d28d9",fontWeight:500}}>🌾 Est. harvest: {matPreview} &#8212; window opens 7 days before</div>}
@@ -993,7 +1006,7 @@ function TransplantSheet({show,crop,locations,onTransplant,onClose}) {
 }
 
 // ── Crop Detail Panel ──────────────────────────────────────────
-function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,onMarkDone,onMarkLost,onDeleteCrop,onAddNote,onEditNote,onDeleteNote,onLogHarvest,onEditHarvest,onDeleteHarvest,onAddFeed,onEditFeed,onDeleteFeed,onDeleteWater,onAddNutrient,onTransplant,onWater}) {
+function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,onMarkDone,onMarkLost,onDeleteCrop,onAddNote,onEditNote,onDeleteNote,onLogHarvest,onEditHarvest,onDeleteHarvest,onAddFeed,onEditFeed,onDeleteFeed,onDeleteWater,onUpdateSchedule,onDeleteSchedule,onAddNutrient,onTransplant,onWater}) {
   const [tab,setTab]=useState("overview");
   const [noteText,setNoteText]=useState("");
   const [editingNoteIdx,setEditingNoteIdx]=useState(null);
@@ -1012,6 +1025,9 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
   const [editFeedData,setEditFeedData]=useState({nutrient:"",qty:"",unit:"tbsp",water:""});
   const [deleteFeedIdx,setDeleteFeedIdx]=useState(null);
   const [deleteWaterIdx,setDeleteWaterIdx]=useState(null);
+  const [editingSchedKey,setEditingSchedKey]=useState(null); // nutrient name being edited
+  const [editSchedData,setEditSchedData]=useState({nutrient:"",days:"",qty:"",unit:"tbsp",water:"",waterUnit:"gal"});
+  const [confirmDeleteSched,setConfirmDeleteSched]=useState(null); // nutrient name to delete
   const FUNITS=["tsp","tbsp","cup","fl oz","ml","L","oz","lb","g"];
   useEffect(()=>{if(show)setTab("overview");},[show]);
   if(!crop) return null;
@@ -1087,7 +1103,7 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
               <StatTile label={crop.inContainer?"Container":"Growing In"} value={crop.inContainer&&crop.containerSize?crop.containerSize:crop.inContainer?"Container":"Ground / Bed"}/>
               <StatTile label={crop.startType==="direct"?"Sow Date":"Start Date"} value={fmtDate(crop.seedDate)}/>
               {crop.transplantDate?<StatTile label="Transplanted" value={fmtDate(crop.transplantDate)}/>:<StatTile label="Weeks Since Start" value={crop.seedDate?`${weeksAgo(crop.seedDate)} wks`:"—"}/>}
-              <StatTile label="Est. Harvest" value={harvestFmt(crop.startType==="direct"?crop.seedDate:(crop.transplantDate||crop.seedDate),crop.daysToMaturity)||"—"}/>
+              <StatTile label="Est. Harvest" value={(()=>{const ref=crop.startType==="direct"?crop.seedDate:(crop.startType==="indoor"?crop.transplantDate:crop.seedDate);return harvestFmt(ref,crop.daysToMaturity)||"—";})()}/>
               <StatTile label="Days to Maturity" value={crop.daysToMaturity?`${crop.daysToMaturity}d`:"—"}/>
               <StatTile label="💧 Last Watered" value={lastWater?daysWater===0?"Today":`${fmtDate(lastWater.date)}`:"Never"}/>
               <StatTile label="🌿 Last Fed" value={lastFeed?daysFed===0?"Today":`${fmtDate(lastFeed.date)}`:"Never"}/>
@@ -1126,7 +1142,75 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
               );
             })()}
 
-            {/* Harvest window */}
+            {/* Feeding Schedule */}
+            {Object.keys(schedules).length>0&&(
+              <div style={{background:"white",borderRadius:"12px",padding:"14px",border:`1px solid ${overdue?"#fcd34d":C.border}`}}>
+                <SLabel mt="0">Feeding Schedule</SLabel>
+                <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+                  {Object.entries(schedules).map(([nutrient,sched])=>{
+                    const intervalDays=scheduleDays(sched);
+                    const last=[...feedLog].reverse().find(f=>f.nutrient===nutrient);
+                    const da=last?daysAgo(last.date):null;
+                    const daysLeft=da!==null?intervalDays-da:null;
+                    const isOverdue=da!==null&&da>=intervalDays;
+                    const nextDate=last?succDate(last.date.split('T')[0],intervalDays):null;
+                    const isEditing=editingSchedKey===nutrient;
+                    const SUNITS=["tsp","tbsp","cup","fl oz","ml","L","oz","lb","g"];
+                    const SWUNITS=["fl oz","cup","pt","qt","gal","ml","L"];
+                    if(isEditing) return(
+                      <div key={nutrient} style={{background:"#fffbeb",borderRadius:"8px",padding:"10px",border:"1px solid #fcd34d"}}>
+                        <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
+                          <input value={editSchedData.nutrient} onChange={e=>setEditSchedData(d=>({...d,nutrient:e.target.value}))} placeholder="Nutrient name" style={{padding:"8px 10px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.88rem",outline:"none"}}/>
+                          <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                            <span style={{fontSize:"0.78rem",color:C.textSub,flexShrink:0}}>Every</span>
+                            <input type="number" min="1" value={editSchedData.days} onChange={e=>setEditSchedData(d=>({...d,days:e.target.value}))} placeholder="days" style={{width:"60px",padding:"8px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.88rem",outline:"none",textAlign:"center"}}/>
+                            <span style={{fontSize:"0.78rem",color:C.textSub}}>days</span>
+                          </div>
+                          <div style={{fontSize:"0.72rem",fontWeight:600,color:C.textSub,marginTop:"2px"}}>Amount <span style={{fontWeight:400,color:C.textFaint}}>(optional)</span></div>
+                          <div style={{display:"flex",gap:"6px"}}>
+                            <input type="number" min="0" step="any" value={editSchedData.qty} onChange={e=>setEditSchedData(d=>({...d,qty:e.target.value}))} placeholder="e.g. 2" style={{flex:1,padding:"8px 10px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.88rem",outline:"none"}}/>
+                            <select value={editSchedData.unit} onChange={e=>setEditSchedData(d=>({...d,unit:e.target.value}))} style={{padding:"8px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.85rem",background:"white"}}>
+                              {SUNITS.map(u=><option key={u}>{u}</option>)}
+                            </select>
+                          </div>
+                          <div style={{fontSize:"0.72rem",fontWeight:600,color:C.textSub}}>Diluted in water <span style={{fontWeight:400,color:C.textFaint}}>(optional)</span></div>
+                          <div style={{display:"flex",gap:"6px"}}>
+                            <input type="number" min="0" step="any" value={editSchedData.water} onChange={e=>setEditSchedData(d=>({...d,water:e.target.value}))} placeholder="e.g. 1" style={{flex:1,padding:"8px 10px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.88rem",outline:"none"}}/>
+                            <select value={editSchedData.waterUnit} onChange={e=>setEditSchedData(d=>({...d,waterUnit:e.target.value}))} style={{padding:"8px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.85rem",background:"white"}}>
+                              {SWUNITS.map(u=><option key={u}>{u}</option>)}
+                            </select>
+                          </div>
+                          <div style={{display:"flex",gap:"6px",marginTop:"2px"}}>
+                            <button onClick={()=>{
+                              const newName=titleCase(editSchedData.nutrient.trim())||nutrient;
+                              const newSched={...sched,days:Number(editSchedData.days)||intervalDays,qty:editSchedData.qty||"",unit:editSchedData.unit||"tbsp",water:editSchedData.water||"",waterUnit:editSchedData.waterUnit||"gal"};
+                              if(newName!==nutrient) onDeleteSchedule(crop.id,nutrient);
+                              onUpdateSchedule(crop.id,newName,newSched);
+                              setEditingSchedKey(null);
+                            }} style={{flex:1,background:C.green,color:"white",border:"none",borderRadius:"8px",padding:"8px",fontWeight:700,fontSize:"0.82rem",cursor:"pointer"}}>Save</button>
+                            <button onClick={()=>setEditingSchedKey(null)} style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,borderRadius:"8px",padding:"8px",fontSize:"0.82rem",color:C.textSub,cursor:"pointer"}}>Cancel</button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                    return(
+                      <div key={nutrient} style={{display:"flex",alignItems:"center",gap:"10px",padding:"8px 10px",background:isOverdue?"#fffbeb":"#f9fafb",borderRadius:"8px",border:`1px solid ${isOverdue?"#fcd34d":C.border}`}}>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:"0.88rem",fontWeight:600,color:C.text}}>{nutrient}</div>
+                          <div style={{fontSize:"0.75rem",color:isOverdue?"#92400e":C.textSub,marginTop:"2px"}}>
+                            {isOverdue?`⚠ Overdue by ${da-intervalDays}d`:daysLeft!==null?`Next in ${daysLeft}d${nextDate?` · ${fmtDate(nextDate)}`:""}`:
+                            `Every ${intervalDays}d · not yet fed`}
+                          </div>
+                        </div>
+                        <span style={{fontSize:"0.72rem",color:C.textFaint,background:"#e5e7eb",padding:"2px 8px",borderRadius:"6px"}}>every {intervalDays}d</span>
+                        <button onClick={()=>{setEditingSchedKey(nutrient);setEditSchedData({nutrient,days:String(intervalDays),qty:sched?.qty||"",unit:sched?.unit||"tbsp",water:sched?.water||"",waterUnit:sched?.waterUnit||"gal"});}} style={{background:"transparent",border:"none",color:C.textSub,fontSize:"0.72rem",fontWeight:600,cursor:"pointer",padding:"2px 6px"}}>Edit</button>
+                        <button onClick={()=>setConfirmDeleteSched(nutrient)} style={{background:"transparent",border:"none",color:"#dc2626",fontSize:"0.72rem",fontWeight:600,cursor:"pointer",padding:"2px 6px"}}>Delete</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             {ws&&(()=>{
               if(ws.inWindow) return(
                 <div style={{background:"#faf5ff",borderRadius:"14px",padding:"16px",border:"1.5px solid #e9d5ff"}}>
@@ -1243,8 +1327,21 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
                             </select>
                           </div>
                           <input value={editFeedData.water} onChange={e=>setEditFeedData(d=>({...d,water:e.target.value}))} placeholder="Water (e.g. 1 gal)" style={{padding:"8px 10px",borderRadius:"8px",border:`1.5px solid ${C.border}`,fontSize:"0.88rem",outline:"none"}}/>
+                          <div style={{display:"flex",alignItems:"center",gap:"8px",background:"#fffbeb",borderRadius:"8px",padding:"8px 10px",border:`1px solid #fcd34d`}}>
+                            <span style={{fontSize:"0.78rem",color:"#92400e",flexShrink:0,fontWeight:600}}>🌿 Repeat every</span>
+                            <input type="number" min="1" value={editFeedData.intervalDays||""} onChange={e=>setEditFeedData(d=>({...d,intervalDays:e.target.value}))} placeholder="—" style={{width:"50px",padding:"4px 8px",borderRadius:"6px",border:`1px solid ${C.border}`,fontSize:"0.85rem",outline:"none",textAlign:"center"}}/>
+                            <span style={{fontSize:"0.78rem",color:"#92400e"}}>days</span>
+                          </div>
                           <div style={{display:"flex",gap:"6px"}}>
-                            <button onClick={()=>{onEditFeed(crop.id,entry.idx,{nutrient:titleCase(editFeedData.nutrient.trim()),qty:editFeedData.qty?`${editFeedData.qty} ${editFeedData.unit}`:null,water:editFeedData.water||null});setEditingFeedIdx(null);}} style={{flex:1,background:C.green,color:"white",border:"none",borderRadius:"8px",padding:"8px",fontWeight:700,fontSize:"0.82rem",cursor:"pointer"}}>Save</button>
+                            <button onClick={()=>{
+                              const n=titleCase(editFeedData.nutrient.trim());
+                              onEditFeed(crop.id,entry.idx,{nutrient:n,qty:editFeedData.qty?`${editFeedData.qty} ${editFeedData.unit}`:null,water:editFeedData.water||null});
+                              if(editFeedData.intervalDays&&Number(editFeedData.intervalDays)>0){
+                                const prev=schedules[n]||{};
+                                onUpdateSchedule(crop.id,n,{...prev,days:Number(editFeedData.intervalDays),qty:editFeedData.qty||prev.qty||"",unit:editFeedData.unit||prev.unit||"tbsp",water:editFeedData.water||prev.water||"",waterUnit:"gal"});
+                              }
+                              setEditingFeedIdx(null);
+                            }} style={{flex:1,background:C.green,color:"white",border:"none",borderRadius:"8px",padding:"8px",fontWeight:700,fontSize:"0.82rem",cursor:"pointer"}}>Save</button>
                             <button onClick={()=>setEditingFeedIdx(null)} style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,borderRadius:"8px",padding:"8px",fontSize:"0.82rem",color:C.textSub,cursor:"pointer"}}>Cancel</button>
                           </div>
                         </div>
@@ -1329,6 +1426,7 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
     <ConfirmSheet show={deleteHarvestIdx!==null} title="Delete harvest?" message="This harvest entry will be permanently deleted and removed from your totals." confirmLabel="Delete" danger onConfirm={()=>{if(deleteHarvestIdx!==null){onDeleteHarvest(crop.id,deleteHarvestIdx);setDeleteHarvestIdx(null);}}} onCancel={()=>setDeleteHarvestIdx(null)}/>
     <ConfirmSheet show={deleteFeedIdx!==null} title="Delete feed entry?" message="This feed log entry will be permanently deleted." confirmLabel="Delete" danger onConfirm={()=>{if(deleteFeedIdx!==null){onDeleteFeed(crop.id,deleteFeedIdx);setDeleteFeedIdx(null);}}} onCancel={()=>setDeleteFeedIdx(null)}/>
     <ConfirmSheet show={deleteWaterIdx!==null} title="Delete watering?" message="This watering entry will be permanently deleted." confirmLabel="Delete" danger onConfirm={()=>{if(deleteWaterIdx!==null){onDeleteWater(crop.id,deleteWaterIdx);setDeleteWaterIdx(null);}}} onCancel={()=>setDeleteWaterIdx(null)}/>
+    <ConfirmSheet show={!!confirmDeleteSched} title="Delete schedule?" message={confirmDeleteSched?`The feeding schedule for ${confirmDeleteSched} will be removed.`:""} confirmLabel="Delete" danger onConfirm={()=>{if(confirmDeleteSched){onDeleteSchedule(crop.id,confirmDeleteSched);setConfirmDeleteSched(null);}}} onCancel={()=>setConfirmDeleteSched(null)}/>
     </>
   );
 }
@@ -1349,7 +1447,7 @@ function CropCard({crop,onClick,onWater}) {
   const lastFeed=feedLog.length?feedLog[feedLog.length-1]:null;
   const daysFed=lastFeed?daysAgo(lastFeed.date):null;
   const dInStage=daysSinceStage(crop);
-  const estHarvest=harvestFmt(crop.startType==="direct"?crop.seedDate:(crop.transplantDate||crop.seedDate),crop.daysToMaturity);
+  const estHarvest=harvestFmt(crop.startType==="direct"?crop.seedDate:(crop.startType==="indoor"?crop.transplantDate:crop.seedDate),crop.daysToMaturity);
   const wateredToday=daysWater===0;
   return(
     <div style={{background:"white",borderRadius:"16px",overflow:"hidden",border:`1.5px solid ${ws?.inWindow?"#c4b5fd":overdue?"#fcd34d":C.border}`,boxShadow:ws?.inWindow?"0 2px 12px rgba(139,92,246,0.12)":"0 1px 6px rgba(0,0,0,0.06)",userSelect:"none"}}>
@@ -1528,104 +1626,170 @@ function LocCard({loc,crops,onClick}) {
 }
 
 // ── Todo Panel ─────────────────────────────────────────────────
-function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onClose}) {
+function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFeed,onClose}) {
   const [text,setText]=useState("");
   const [due,setDue]=useState("");
   const [confirmDelete,setConfirmDelete]=useState(null);
+  const [todoTab,setTodoTab]=useState("tasks");
+  const [confirmMarkFeed,setConfirmMarkFeed]=useState(null);
   const t0=todayStr();
-  function genTasks(){
+
+  function genFeedTasks(){
     const tasks=[];
     crops.filter(c=>!c.archived).forEach(c=>{
       const s=c.feedSchedules||{};const fl=c.feedLog||[];
       Object.entries(s).forEach(([nutrient,d])=>{
-        const last=[...fl].reverse().find(f=>f.nutrient===nutrient);if(!last)return;
+        const intervalDays=scheduleDays(d);
+        if(!intervalDays) return;
+        const last=[...fl].reverse().find(f=>f.nutrient===nutrient);
+        if(!last){
+          // Schedule exists but never fed (or all entries deleted) — show as overdue
+          tasks.push({id:`feed-${c.id}-${nutrient}`,type:"feed",label:`${c.name}${c.variety?` · ${c.variety}`:""} — ${nutrient}`,sub:"Never fed — feed now",urgency:"overdue",crop:c,nutrient,due:null});
+          return;
+        }
         const da=daysAgo(last.date);
-        if(da>=d) tasks.push({id:`feed-${c.id}-${nutrient}`,type:"feed",label:`Feed ${c.name}${c.variety?` · ${c.variety}`:""} — ${nutrient}`,sub:`${da-d}d overdue`,urgency:"overdue",crop:c});
-        else if(d-da<=3) tasks.push({id:`feed-${c.id}-${nutrient}`,type:"feed",label:`Feed ${c.name}${c.variety?` · ${c.variety}`:""} — ${nutrient}`,sub:`Due in ${d-da}d`,urgency:"soon",crop:c});
+        const daysLeft=intervalDays-da;
+        const dueDate=succDate(last.date.split('T')[0],intervalDays);
+        const urgency=da>=intervalDays?"overdue":daysLeft<=3?"soon":"upcoming";
+        const sub=da>=intervalDays?`${da-intervalDays}d overdue`:daysLeft<=0?"Due today":`Due in ${daysLeft}d · ${fmtDate(dueDate)}`;
+        tasks.push({id:`feed-${c.id}-${nutrient}`,type:"feed",label:`${c.name}${c.variety?` · ${c.variety}`:""} — ${nutrient}`,sub,urgency,crop:c,nutrient,due:dueDate});
       });
-      const ws=hwStatus(c);
-      if(ws?.inWindow) tasks.push({id:`hw-${c.id}`,type:"harvest",label:`Harvest ${c.name}${c.variety?` · ${c.variety}`:""}`,sub:"Window open · mark Done when finished",urgency:"today",crop:c});
-      else if(ws&&ws.daysToOpen<=5&&ws.daysToOpen>0) tasks.push({id:`hw-${c.id}`,type:"harvest",label:`Harvest window opens: ${c.name}`,sub:`In ${ws.daysToOpen}d · ${fmtDate(ws.openDate)}`,urgency:"soon",crop:c});
-      if(c.successionDays){const diff=daysUntil(succDate(c.seedDate,c.successionDays));if(diff!==null&&diff<=7) tasks.push({id:`suc-${c.id}`,type:"succession",label:`Succession sow ${c.name}${c.variety?` · ${c.variety}`:""}`,sub:diff<=0?"Sow now!":`Sow in ${diff}d`,urgency:diff<=0?"overdue":"today",crop:c});}
+      if(c.successionDays){const diff=daysUntil(succDate(c.seedDate,c.successionDays));if(diff!==null&&diff<=7) tasks.push({id:`suc-${c.id}`,type:"succession",label:`Succession sow ${c.name}${c.variety?` · ${c.variety}`:""}`,sub:diff<=0?"Sow now!":`Sow in ${diff}d`,urgency:diff<=0?"overdue":"soon",crop:c});}
     });
-    return tasks.sort((a,b)=>({overdue:0,today:1,soon:2}[a.urgency]-{overdue:0,today:1,soon:2}[b.urgency]));
+    return tasks.sort((a,b)=>({overdue:0,soon:1,upcoming:2}[a.urgency]||0)-({overdue:0,soon:1,upcoming:2}[b.urgency]||0));
   }
-  const tasks=genTasks();
+
+  const feedTasks=genFeedTasks();
   const pending=todos.filter(t=>!t.done).sort((a,b)=>{
-    // Both have dates — sort oldest first
     if(a.due&&b.due) return a.due.localeCompare(b.due);
-    // Only a has date — a comes first
     if(a.due&&!b.due) return -1;
-    // Only b has date — b comes first
     if(!a.due&&b.due) return 1;
-    // Neither has date — keep insertion order
     return 0;
   });
   const done=todos.filter(t=>t.done);
-  const uc={overdue:{bg:"#fffbeb",border:"#fcd34d",dot:"#f59e0b",text:"#92400e"},today:{bg:"#eff6ff",border:"#bfdbfe",dot:"#3b82f6",text:"#1e40af"},soon:{bg:"#f9fafb",border:C.border,dot:"#9ca3af",text:C.textSub}};
-  const icon={feed:"🌿",harvest:"🌾",succession:"🌱"};
+  const uc={overdue:{bg:"#fffbeb",border:"#fcd34d",dot:"#f59e0b",text:"#92400e"},soon:{bg:"#fff7ed",border:"#fed7aa",dot:"#f97316",text:"#9a3412"},upcoming:{bg:"#f9fafb",border:C.border,dot:"#9ca3af",text:C.textSub}};
+  const overdueCount=feedTasks.filter(t=>t.urgency==="overdue"||t.urgency==="soon").length;
+
   return(
     <>
     <Panel show={show} onClose={onClose} title="To-Do" bottomBack>
-      <div style={{padding:"16px",display:"flex",flexDirection:"column",gap:"20px"}}>
-        {tasks.length>0&&(
-          <div>
-            <SLabel>Crop Schedule</SLabel>
+      {/* Tabs */}
+      <div style={{display:"flex",background:"white",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,zIndex:10}}>
+        <button onClick={()=>setTodoTab("tasks")} style={{flex:1,padding:"14px 0",border:"none",background:"transparent",fontSize:"0.85rem",fontWeight:600,color:todoTab==="tasks"?C.greenMid:C.textSub,borderBottom:`2px solid ${todoTab==="tasks"?C.green:"transparent"}`,cursor:"pointer"}}>
+          Tasks{pending.length>0?` (${pending.length})`:""}
+        </button>
+        <button onClick={()=>setTodoTab("feedings")} style={{flex:1,padding:"14px 0",border:"none",background:"transparent",fontSize:"0.85rem",fontWeight:600,color:todoTab==="feedings"?C.greenMid:C.textSub,borderBottom:`2px solid ${todoTab==="feedings"?C.green:"transparent"}`,cursor:"pointer"}}>
+          Feedings{overdueCount>0?` (${overdueCount})`:""}
+        </button>
+      </div>
+
+      <div style={{padding:"16px",display:"flex",flexDirection:"column",gap:"16px"}}>
+
+        {/* ── TASKS TAB ── */}
+        {todoTab==="tasks"&&(
+          <>
             <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
-              {tasks.map(t=>{const u=uc[t.urgency];const acc=cropAccent(t.crop.name);return(
-                <div key={t.id} style={{display:"flex",gap:"10px",alignItems:"center",background:u.bg,borderRadius:"12px",padding:"12px 14px",border:`1.5px solid ${u.border}`}}>
-                  <div style={{width:"8px",height:"8px",borderRadius:"50%",background:u.dot,flexShrink:0}}/>
-                  <div style={{flex:1}}><div style={{fontSize:"0.9rem",fontWeight:600,color:C.text}} dangerouslySetInnerHTML={{__html:`${icon[t.type]} ${t.label}`}}/><div style={{fontSize:"0.78rem",color:u.text,marginTop:"2px"}}>{t.sub}</div></div>
-                  <div style={{width:"3px",alignSelf:"stretch",borderRadius:"2px",background:`linear-gradient(${acc.from},${acc.to})`,flexShrink:0}}/>
-                </div>
-              );})}
-            </div>
-          </div>
-        )}
-        <div>
-          <SLabel>My Tasks</SLabel>
-          <div style={{display:"flex",flexDirection:"column",gap:"8px",marginBottom:"10px"}}>
-            <div>
-              <div style={{fontSize:"0.72rem",fontWeight:600,color:C.textSub,marginBottom:"5px",letterSpacing:"0.04em",textTransform:"uppercase"}}>Task</div>
-              <input value={text} onChange={e=>setText(e.target.value)} placeholder="What needs to be done?"
-                onKeyDown={e=>{if(e.key==="Enter"&&text.trim()){onAddTodo({id:nextTodo++,text:text.trim(),done:false,due:due||null});setText("");setDue("");}}}
-                style={{width:"100%",padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:"white",outline:"none"}}/>
-            </div>
-            <div>
-              <div style={{fontSize:"0.72rem",fontWeight:600,color:C.textSub,marginBottom:"5px",letterSpacing:"0.04em",textTransform:"uppercase"}}>Finish By <span style={{fontWeight:400,color:C.textFaint}}>(optional)</span></div>
-              <input type="date" value={due} onChange={e=>setDue(e.target.value)} style={{width:"100%",padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:"white",outline:"none",color:due?C.text:C.textFaint}}/>
-            </div>
-            <button onClick={()=>{if(text.trim()){onAddTodo({id:nextTodo++,text:text.trim(),done:false,due:due||null});setText("");setDue("");}}} style={{background:C.green,color:"white",border:"none",borderRadius:"10px",padding:"13px",fontWeight:700,fontSize:"0.95rem",cursor:"pointer"}}>Add Task</button>
-          </div>
-          {pending.length===0&&tasks.length===0&&<div style={{textAlign:"center",padding:"1.5rem",color:C.textFaint,fontStyle:"italic",fontSize:"0.9rem"}}>You're all caught up!</div>}
-          <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
-            {pending.map(t=>{const ov=t.due&&t.due<t0;const di=t.due?daysUntil(t.due):null;return(
-              <div key={t.id} style={{display:"flex",alignItems:"center",gap:"12px",background:ov?"#fffbeb":"white",borderRadius:"12px",padding:"12px 14px",border:`1.5px solid ${ov?"#fcd34d":C.border}`}}>
-                <div onClick={()=>onToggleTodo(t.id)} className="cb"/>
-                <div style={{flex:1}}><div style={{fontSize:"0.9rem",fontWeight:500,color:C.text}}>{t.text}</div>{t.due&&<div style={{fontSize:"0.75rem",color:ov?"#92400e":C.textFaint,marginTop:"2px"}}>{ov?`⚠ Due ${fmtDate(t.due)}`:di===0?"Due today":`Due ${fmtDate(t.due)}`}</div>}</div>
-                <button onClick={()=>setConfirmDelete(t)} style={{background:"transparent",border:"none",color:"#d1d5db",fontSize:"1.1rem",cursor:"pointer",padding:"0 4px",lineHeight:1}}>×</button>
+              <div>
+                <div style={{fontSize:"0.72rem",fontWeight:600,color:C.textSub,marginBottom:"5px",letterSpacing:"0.04em",textTransform:"uppercase"}}>Task</div>
+                <input value={text} onChange={e=>setText(e.target.value)} placeholder="What needs to be done?"
+                  onKeyDown={e=>{if(e.key==="Enter"&&text.trim()){onAddTodo({id:Date.now(),text:text.trim(),done:false,due:due||null});setText("");setDue("");}}}
+                  style={{width:"100%",padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:"white",outline:"none"}}/>
               </div>
-            );})}
-          </div>
-          {done.length>0&&(
-            <div style={{marginTop:"12px"}}>
-              <SLabel>Completed ({done.length})</SLabel>
-              {done.map(t=>(
-                <div key={t.id} style={{display:"flex",alignItems:"center",gap:"12px",background:"#f9fafb",borderRadius:"12px",padding:"10px 14px",opacity:0.65,marginBottom:"6px"}}>
-                  <div onClick={()=>onToggleTodo(t.id)} className="cb checked"><span style={{color:"white",fontSize:"0.8rem"}}>✓</span></div>
-                  <div style={{flex:1,fontSize:"0.9rem",color:C.textSub,textDecoration:"line-through"}}>{t.text}</div>
-                  <button onClick={()=>setConfirmDelete(t)} style={{background:"transparent",border:"none",color:"#d1d5db",fontSize:"1.1rem",cursor:"pointer",padding:"0"}}>×</button>
-                </div>
-              ))}
+              <div>
+                <div style={{fontSize:"0.72rem",fontWeight:600,color:C.textSub,marginBottom:"5px",letterSpacing:"0.04em",textTransform:"uppercase"}}>Finish By <span style={{fontWeight:400,color:C.textFaint}}>(optional)</span></div>
+                <input type="date" value={due} onChange={e=>setDue(e.target.value)} style={{width:"100%",padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:"white",outline:"none",color:due?C.text:C.textFaint}}/>
+              </div>
+              <button onClick={()=>{if(text.trim()){onAddTodo({id:Date.now(),text:text.trim(),done:false,due:due||null});setText("");setDue("");}}} style={{background:C.green,color:"white",border:"none",borderRadius:"10px",padding:"13px",fontWeight:700,fontSize:"0.95rem",cursor:"pointer"}}>Add Task</button>
             </div>
-          )}
-        </div>
+            {pending.length===0&&done.length===0&&<div style={{textAlign:"center",padding:"2rem 0",color:C.textFaint,fontStyle:"italic"}}>No tasks yet.</div>}
+            {pending.length>0&&(
+              <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+                {pending.map(t=>{const ov=t.due&&t.due<t0;const di=t.due?daysUntil(t.due):null;return(
+                  <div key={t.id} style={{display:"flex",alignItems:"center",gap:"12px",background:ov?"#fffbeb":"white",borderRadius:"12px",padding:"12px 14px",border:`1.5px solid ${ov?"#fcd34d":C.border}`}}>
+                    <div onClick={()=>onToggleTodo(t.id)} className="cb"/>
+                    <div style={{flex:1}}><div style={{fontSize:"0.9rem",fontWeight:500,color:C.text}}>{t.text}</div>{t.due&&<div style={{fontSize:"0.75rem",color:ov?"#92400e":C.textFaint,marginTop:"2px"}}>{ov?`⚠ Due ${fmtDate(t.due)}`:di===0?"Due today":`Due ${fmtDate(t.due)}`}</div>}</div>
+                    <button onClick={()=>setConfirmDelete(t)} style={{background:"transparent",border:"none",color:"#d1d5db",fontSize:"1.1rem",cursor:"pointer",padding:"0 4px",lineHeight:1}}>×</button>
+                  </div>
+                );})}
+              </div>
+            )}
+            {done.length>0&&(
+              <div>
+                <SLabel>Completed ({done.length})</SLabel>
+                {done.map(t=>(
+                  <div key={t.id} style={{display:"flex",alignItems:"center",gap:"12px",background:"#f9fafb",borderRadius:"12px",padding:"10px 14px",opacity:0.65,marginBottom:"6px"}}>
+                    <div onClick={()=>onToggleTodo(t.id)} className="cb checked"><span style={{color:"white",fontSize:"0.8rem"}}>✓</span></div>
+                    <div style={{flex:1,fontSize:"0.9rem",color:C.textSub,textDecoration:"line-through"}}>{t.text}</div>
+                    <button onClick={()=>setConfirmDelete(t)} style={{background:"transparent",border:"none",color:"#d1d5db",fontSize:"1.1rem",cursor:"pointer",padding:"0"}}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── FEEDINGS TAB ── */}
+        {todoTab==="feedings"&&(
+          <>
+            {feedTasks.length===0&&<div style={{textAlign:"center",padding:"2rem 0",color:C.textFaint,fontStyle:"italic"}}>No feeding schedules set up yet.</div>}
+            <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+              {feedTasks.map(t=>{
+                const u=uc[t.urgency]||uc.upcoming;
+                const acc=cropAccent(t.crop.name);
+                const isFeed=t.type==="feed";
+                return(
+                  <div key={t.id} style={{background:u.bg,borderRadius:"12px",padding:"12px 14px",border:`1.5px solid ${u.border}`,display:"flex",alignItems:"center",gap:"10px"}}>
+                    <div style={{width:"8px",height:"8px",borderRadius:"50%",background:u.dot,flexShrink:0}}/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:"0.88rem",fontWeight:700,color:C.text}}>{isFeed?"🌿":"🌱"} {t.label}</div>
+                      <div style={{fontSize:"0.75rem",color:u.text,marginTop:"2px"}}>{t.sub}</div>
+                      {isFeed&&(()=>{
+                        const sched=t.crop.feedSchedules?.[t.nutrient];
+                        const qty=sched?.qty&&sched?.unit?`${sched.qty} ${sched.unit}`:null;
+                        const water=sched?.water&&sched?.waterUnit?`${sched.water} ${sched.waterUnit}`:null;
+                        if(!qty&&!water) return null;
+                        return(
+                          <div style={{display:"flex",gap:"5px",marginTop:"5px",flexWrap:"wrap"}}>
+                            {qty&&<span style={{fontSize:"0.7rem",fontWeight:600,color:"#92400e",background:"#fef3c7",padding:"2px 7px",borderRadius:"6px"}}>{qty}</span>}
+                            {water&&<span style={{fontSize:"0.7rem",fontWeight:600,color:"#1d4ed8",background:"#dbeafe",padding:"2px 7px",borderRadius:"6px"}}>💧 {water}</span>}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                    <div style={{width:"3px",alignSelf:"stretch",borderRadius:"2px",background:`linear-gradient(${acc.from},${acc.to})`,flexShrink:0}}/>
+                    {isFeed&&(()=>{
+                      const fl=t.crop.feedLog||[];
+                      const lastFed=fl.filter(f=>f.nutrient===t.nutrient).pop();
+                      const fedToday=lastFed&&daysAgo(lastFed.date)===0;
+                      return(
+                        <button onClick={()=>!fedToday&&setConfirmMarkFeed({crop:t.crop,nutrient:t.nutrient})} style={{background:fedToday?"#f3f4f6":"#f59e0b",color:fedToday?"#9ca3af":"white",border:"none",borderRadius:"8px",padding:"6px 10px",fontSize:"0.75rem",fontWeight:700,cursor:fedToday?"default":"pointer",flexShrink:0,opacity:fedToday?0.7:1}}>
+                          {fedToday?"Fed ✓":"Feed"}
+                        </button>
+                      );
+                    })()}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
       </div>
     </Panel>
     <ConfirmSheet show={!!confirmDelete} title="Delete task?" message={confirmDelete?`"${confirmDelete.text}" will be permanently deleted.`:""} confirmLabel="Delete" danger onConfirm={()=>{if(confirmDelete){onDeleteTodo(confirmDelete.id);setConfirmDelete(null);}}} onCancel={()=>setConfirmDelete(null)}/>
+    <ConfirmSheet show={!!confirmMarkFeed} title="Mark as fed?" message={confirmMarkFeed?`Log a feeding for ${confirmMarkFeed.crop.name}${confirmMarkFeed.crop.variety?` · ${confirmMarkFeed.crop.variety}`:""} — ${confirmMarkFeed.nutrient}?`:""} confirmLabel="Log Feed" onConfirm={()=>{
+      if(confirmMarkFeed){
+        const sched=confirmMarkFeed.crop.feedSchedules?.[confirmMarkFeed.nutrient];
+        const qty=sched?.qty&&sched?.unit?`${sched.qty} ${sched.unit}`:null;
+        const water=sched?.water&&sched?.waterUnit?`${sched.water} ${sched.waterUnit}`:null;
+        onLogFeed(confirmMarkFeed.crop.id,confirmMarkFeed.nutrient,qty,water,null);
+        setConfirmMarkFeed(null);
+      }
+    }} onCancel={()=>setConfirmMarkFeed(null)}/>
     </>
   );
 }
+
 
 // ── Weather Panel ──────────────────────────────────────────────
 function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onClose}) {
@@ -1746,9 +1910,10 @@ function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onClose
 }
 
 // ── Report Panel ───────────────────────────────────────────────
-function ReportPanel({show,crops,onRestore,onClose}) {
+function ReportPanel({show,crops,onRestore,onDeleteCrop,onClose}) {
   const [sec,setSec]=useState("overview");
   const [confirmRestore,setConfirmRestore]=useState(null);
+  const [confirmDeleteArchived,setConfirmDeleteArchived]=useState(null);
   const active=crops.filter(c=>!c.archived);
   const archived=crops.filter(c=>c.archived);
   const allHarvests=crops.flatMap(c=>c.harvests.map(h=>({...h,cropName:c.name,variety:c.variety,cropId:c.id})));
@@ -1834,7 +1999,10 @@ function ReportPanel({show,crops,onRestore,onClose}) {
                       {ht&&<span> · 🌿 {ht.value} {ht.unit}</span>}
                       {lastStageDate&&<span> · {fmtDate(lastStageDate)}</span>}
                     </div>
-                    <button onClick={()=>setConfirmRestore(c)} style={{background:"#f0fdf4",border:`1px solid ${C.green}`,borderRadius:"8px",padding:"6px 14px",fontSize:"0.8rem",fontWeight:700,color:C.greenDark,cursor:"pointer"}}>↺ Restore to Active</button>
+                    <div style={{display:"flex",gap:"8px"}}>
+                      <button onClick={()=>setConfirmRestore(c)} style={{background:"#f0fdf4",border:`1px solid ${C.green}`,borderRadius:"8px",padding:"6px 14px",fontSize:"0.8rem",fontWeight:700,color:C.greenDark,cursor:"pointer"}}>↺ Restore</button>
+                      <button onClick={()=>setConfirmDeleteArchived(c)} style={{background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:"8px",padding:"6px 14px",fontSize:"0.8rem",fontWeight:700,color:"#dc2626",cursor:"pointer"}}>Delete</button>
+                    </div>
                   </div>
                 );
               })}
@@ -1937,6 +2105,7 @@ function ReportPanel({show,crops,onRestore,onClose}) {
       </div>
     </Panel>
     <ConfirmSheet show={!!confirmRestore} title="Restore this crop?" message={confirmRestore?`${confirmRestore.name}${confirmRestore.variety?` (${confirmRestore.variety})`:""} will be moved back to your active crops.`:""} confirmLabel="Restore" onConfirm={()=>{if(confirmRestore){onRestore(confirmRestore.id);setConfirmRestore(null);}}} onCancel={()=>setConfirmRestore(null)}/>
+    <ConfirmSheet show={!!confirmDeleteArchived} title="Delete crop?" message={confirmDeleteArchived?`${confirmDeleteArchived.name}${confirmDeleteArchived.variety?` (${confirmDeleteArchived.variety})`:""} will be permanently deleted. This cannot be undone.`:""} confirmLabel="Delete" danger onConfirm={()=>{if(confirmDeleteArchived){onDeleteCrop(confirmDeleteArchived.id);setConfirmDeleteArchived(null);}}} onCancel={()=>setConfirmDeleteArchived(null)}/>
     </>
   );
 }
@@ -2182,33 +2351,34 @@ function App() {
     setSelCrop(p=>{if(!p||p.id!==cropId)return p;const notes=[...p.notes];notes[noteIdx]={...notes[noteIdx],text:newText,edited:true};return{...p,notes};});
   };
   const deleteNote=(cropId,noteIdx)=>{
-    setCrops(cs=>cs.map(c=>{
-      if(c.id!==cropId) return c;
-      const note=c.notes[noteIdx];
-      if(note?.auto && note.text?.startsWith("Stage changed to ")){
-        const removedStage=note.text.replace("Stage changed to ","").trim();
-        const sh=[...(c.stageHistory||[])];
-        const matchIdx=sh.findLastIndex?sh.findLastIndex(s=>s.stage===removedStage):
-          (()=>{for(let i=sh.length-1;i>=0;i--) if(sh[i].stage===removedStage) return i;return -1;})();
+    const toDateStr=s=>{if(!s)return "";if(s.includes('T'))return s.split('T')[0];return s;};
+    const processDelete=(obj)=>{
+      const note=obj.notes[noteIdx];
+      // Handle stage-change notes (including "Seed germinated")
+      const isStageChange=note?.auto&&(note.text?.startsWith("Stage changed to ")||note.text?.startsWith("Seed germinated"));
+      if(isStageChange){
+        const removedStage=note.text.startsWith("Seed germinated")?"Seedling":note.text.replace("Stage changed to ","").trim();
+        const noteDate=toDateStr(note.date);
+        const sh=[...(obj.stageHistory||[])];
+        // Match by stage name AND approximate date (within 1 day tolerance)
+        let matchIdx=-1;
+        for(let i=sh.length-1;i>=0;i--){
+          if(sh[i].stage===removedStage){
+            const shDate=toDateStr(sh[i].date);
+            const diff=Math.abs(new Date(shDate)-new Date(noteDate))/(1000*60*60*24);
+            if(diff<=1){matchIdx=i;break;}
+          }
+        }
+        // Fallback — match just by stage name if no date match
+        if(matchIdx===-1){for(let i=sh.length-1;i>=0;i--){if(sh[i].stage===removedStage){matchIdx=i;break;}}}
         if(matchIdx!==-1) sh.splice(matchIdx,1);
         const prevStage=sh.length?sh[sh.length-1].stage:"Seed";
-        return{...c,stage:prevStage,stageHistory:sh,notes:c.notes.filter((_,i)=>i!==noteIdx)};
+        return{...obj,stage:prevStage,stageHistory:sh,notes:obj.notes.filter((_,i)=>i!==noteIdx)};
       }
-      return{...c,notes:c.notes.filter((_,i)=>i!==noteIdx)};
-    }));
-    setSelCrop(p=>{
-      if(!p||p.id!==cropId) return p;
-      const note=p.notes[noteIdx];
-      if(note?.auto && note.text?.startsWith("Stage changed to ")){
-        const removedStage=note.text.replace("Stage changed to ","").trim();
-        const sh=[...(p.stageHistory||[])];
-        const matchIdx=(()=>{for(let i=sh.length-1;i>=0;i--) if(sh[i].stage===removedStage) return i;return -1;})();
-        if(matchIdx!==-1) sh.splice(matchIdx,1);
-        const prevStage=sh.length?sh[sh.length-1].stage:"Seed";
-        return{...p,stage:prevStage,stageHistory:sh,notes:p.notes.filter((_,i)=>i!==noteIdx)};
-      }
-      return{...p,notes:p.notes.filter((_,i)=>i!==noteIdx)};
-    });
+      return{...obj,notes:obj.notes.filter((_,i)=>i!==noteIdx)};
+    };
+    setCrops(cs=>cs.map(c=>c.id!==cropId?c:processDelete(c)));
+    setSelCrop(p=>!p||p.id!==cropId?p:processDelete(p));
   };
   const logHarvest=(id,obj)=>{
     const e={date:ts(),...obj};
@@ -2278,17 +2448,24 @@ function App() {
     setSelCrop(p=>{if(!p||p.id!==id)return p;const sh=[...(p.stageHistory||[]),{stage,date:t0}];return{...p,stage,stageHistory:sh,notes:[...p.notes,note]};});
   };
   const addNutrient=n=>setNutrients(ns=>ns.includes(n)?ns:[...ns,n]);
+  const updateSchedule=(cropId,nutrient,schedObj)=>{
+    setCrops(cs=>cs.map(c=>{if(c.id!==cropId)return c;return{...c,feedSchedules:{...(c.feedSchedules||{}),[nutrient]:schedObj}};}));
+    setSelCrop(p=>{if(!p||p.id!==cropId)return p;return{...p,feedSchedules:{...(p.feedSchedules||{}),[nutrient]:schedObj}};});
+  };
+  const deleteSchedule=(cropId,nutrient)=>{
+    setCrops(cs=>cs.map(c=>{if(c.id!==cropId)return c;const fs={...(c.feedSchedules||{})};delete fs[nutrient];return{...c,feedSchedules:fs};}));
+    setSelCrop(p=>{if(!p||p.id!==cropId)return p;const fs={...(p.feedSchedules||{})};delete fs[nutrient];return{...p,feedSchedules:fs};});
+  };
   const addTodo=t=>setTodos(ts=>[...ts,t]);
   const toggleTodo=id=>setTodos(ts=>ts.map(t=>t.id===id?{...t,done:!t.done}:t));
   const deleteTodo=id=>setTodos(ts=>ts.filter(t=>t.id!==id));
 
-  const taskCount=active.filter(c=>{
+  const taskCount=active.reduce((acc,c)=>{
     const s=c.feedSchedules||{};const fl=c.feedLog||[];
-    const fo=Object.entries(s).some(([n,d])=>{const l=[...fl].reverse().find(f=>f.nutrient===n);return l&&daysAgo(l.date)>=scheduleDays(d);});
-    const ws=hwStatus(c);
-    const ss=c.successionDays&&c.seedDate&&daysUntil(succDate(c.seedDate,c.successionDays))<=7;
-    return fo||ws?.inWindow||ss;
-  }).length+todos.filter(t=>!t.done).length;
+    const overdueFeeds=Object.entries(s).filter(([n,d])=>{const l=[...fl].reverse().find(f=>f.nutrient===n);return l&&daysAgo(l.date)>=scheduleDays(d);}).length;
+    const ss=c.successionDays&&c.seedDate&&daysUntil(succDate(c.seedDate,c.successionDays))<=0?1:0;
+    return acc+overdueFeeds+ss;
+  },0)+todos.filter(t=>!t.done).length;
 
   const syncedCrop=selCrop?crops.find(c=>c.id===selCrop.id)||selCrop:null;
 
@@ -2374,14 +2551,15 @@ function App() {
         onAddNote={addNote} onEditNote={editNote} onDeleteNote={deleteNote}
         onLogHarvest={logHarvest} onEditHarvest={editHarvest} onDeleteHarvest={deleteHarvest}
         onAddFeed={logFeed} onEditFeed={editFeed} onDeleteFeed={deleteFeed} onDeleteWater={deleteWater} onAddNutrient={addNutrient}
+        onUpdateSchedule={updateSchedule} onDeleteSchedule={deleteSchedule}
         onTransplant={transplantCrop} onWater={waterCrop}/>
 
       <CropFormPanel show={view==="addCrop"||view==="editCrop"} initial={view==="editCrop"?editCrop:null} locations={locations} cropNames={cropNames} varieties={varieties} defaultLocation={view==="addCrop"?selLoc:null}
         onSave={saveCrop} onClose={()=>setView(view==="editCrop"?"crop":view==="addCrop"&&selLoc&&prevView==="location"?"location":"dashboard")}/>
 
-      <TodoPanel show={view==="todo"} crops={crops} todos={todos} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} onClose={()=>setView("dashboard")}/>
+      <TodoPanel show={view==="todo"} crops={crops} todos={todos} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} onLogFeed={logFeed} onClose={()=>setView("dashboard")}/>
       <WeatherPanel show={view==="weather"} weatherData={weatherData} location={weatherLocation} loading={weatherLoading} error={weatherError} onRefresh={()=>settings?.zip&&loadWeather(settings.zip)} onClose={()=>setView("dashboard")}/>
-      <ReportPanel show={view==="report"} crops={crops} onRestore={restoreCrop} onClose={()=>setView("dashboard")}/>
+      <ReportPanel show={view==="report"} crops={crops} onRestore={restoreCrop} onDeleteCrop={id=>{setCrops(cs=>cs.filter(c=>c.id!==id));}} onClose={()=>setView("dashboard")}/>
       <SettingsPanel show={view==="settings"} settings={settings} locations={locations} crops={crops}
         user={user} syncing={syncing}
         onSave={(s,locs)=>{setSettings(p=>({...p,...s}));setLocations(locs);setView("dashboard");}}
