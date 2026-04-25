@@ -170,35 +170,16 @@ const succDate  = (b,n) => { if(!b||!n) return null; const d=parseDate(b); d.set
 const harvestFmt= (tx,dtm) => { if(!tx||!dtm) return null; const d=parseDate(tx); d.setDate(d.getDate()+Number(dtm)); return d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); };
 const daysSinceStage = crop => { if(!crop.stageHistory||!crop.stageHistory.length) return null; return daysAgo(crop.stageHistory[crop.stageHistory.length-1].date); };
 
-function hwStatus(crop) {
-  if(crop.stage==="Done"||crop.stage==="Lost") return null;
-  if(!crop.daysToMaturity) return null;
-  let ref;
+// Est. harvest reference date helper
+function harvestRef(crop) {
   if(crop.startType==="direct"){
-    // Count from germination (Seedling stage date in stageHistory)
     const seedlingEntry=(crop.stageHistory||[]).find(s=>s.stage==="Seedling");
-    if(seedlingEntry){
-      ref=seedlingEntry.date;
-    } else if(crop.stage==="Seed"){
-      return null; // Not yet germinated — no harvest window
-    } else {
-      // Old crop data — no Seedling entry but past Seed stage; fall back to seedDate
-      ref=crop.seedDate;
-    }
-  } else {
-    // For indoor starts: only count from transplant date — no harvest window until transplanted
-    if(!crop.transplantDate) return null;
-    ref=crop.transplantDate;
+    if(seedlingEntry) return seedlingEntry.date;
+    if(crop.stage==="Seed") return null;
+    return crop.seedDate; // old data fallback
   }
-  if(!ref) return null;
-  const mat=parseDate(ref); mat.setDate(mat.getDate()+Number(crop.daysToMaturity));
-  const open=new Date(mat); open.setDate(open.getDate()-7);
-  const now=new Date(); now.setHours(0,0,0,0);
-  const matStr=`${mat.getFullYear()}-${String(mat.getMonth()+1).padStart(2,'0')}-${String(mat.getDate()).padStart(2,'0')}`;
-  const openStr=`${open.getFullYear()}-${String(open.getMonth()+1).padStart(2,'0')}-${String(open.getDate()).padStart(2,'0')}`;
-  return { inWindow:now>=open, daysToOpen:Math.ceil((open-now)/864e5),
-    daysInto:Math.max(0,Math.ceil((now-open)/864e5)), daysPastMat:Math.max(0,Math.ceil((now-mat)/864e5)),
-    openDate:openStr, matDate:matStr };
+  if(crop.startType==="indoor") return crop.transplantDate||null;
+  return crop.seedDate; // clone/purchased
 }
 function harvestTotal(crop) {
   if(!crop.harvests||!crop.harvests.length) return null;
@@ -573,8 +554,8 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
     setErrors({});setShowNewLoc(false);setLocInput("");
   },[show,locations,initial]);
   const acc=cropAccent(f.name);
-  const harvestRef=f.startType==="direct"?f.seedDate:(f.startType==="indoor"?f.transplantDate:f.seedDate);
-  const matPreview=harvestRef&&f.daysToMaturity?harvestFmt(harvestRef,f.daysToMaturity):null;
+  const hRef=f.startType==="direct"?f.seedDate:(f.startType==="indoor"?f.transplantDate:f.seedDate);
+  const matPreview=hRef&&f.daysToMaturity?harvestFmt(hRef,f.daysToMaturity):null;
   const chosen=f.startType!==null;
   function validate(){
     const e={};
@@ -692,7 +673,7 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
                 <input type="number" value={f.daysToMaturity} onChange={e=>set("daysToMaturity",e.target.value)} placeholder="e.g. 85" style={{...iS,border:`1.5px solid ${C.border}`}}/>
               </div>
             </div>
-            {matPreview&&<div style={{background:"#faf5ff",borderRadius:"10px",padding:"10px 14px",border:"1px solid #e9d5ff",fontSize:"0.82rem",color:"#6d28d9",fontWeight:500}}>🌾 Est. harvest: {matPreview} &#8212; window opens 7 days before</div>}
+            {matPreview&&<div style={{background:"#f0fdf4",borderRadius:"10px",padding:"10px 14px",border:`1px solid #bbf7d0`,fontSize:"0.82rem",color:C.greenDark,fontWeight:500}}>🌾 Est. harvest: {matPreview}</div>}
             <div>
               <div onClick={()=>set("inContainer",!f.inContainer)} style={{display:"flex",alignItems:"center",gap:"12px",padding:"12px 14px",background:f.inContainer?"#eff6ff":"#f9fafb",borderRadius:"10px",border:`1.5px solid ${f.inContainer?"#93c5fd":C.border}`,cursor:"pointer",userSelect:"none"}}>
                 <div className={`cb ${f.inContainer?"checked":""}`}>{f.inContainer&&<span style={{color:"white",fontSize:"0.8rem"}}>✓</span>}</div>
@@ -1006,7 +987,7 @@ function TransplantSheet({show,crop,locations,onTransplant,onClose}) {
 }
 
 // ── Crop Detail Panel ──────────────────────────────────────────
-function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,onMarkDone,onMarkLost,onDeleteCrop,onAddNote,onEditNote,onDeleteNote,onLogHarvest,onEditHarvest,onDeleteHarvest,onAddFeed,onEditFeed,onDeleteFeed,onDeleteWater,onUpdateSchedule,onDeleteSchedule,onAddNutrient,onTransplant,onWater}) {
+function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,onMarkDone,onMarkLost,onDeleteCrop,onChangeStage,onAddNote,onEditNote,onDeleteNote,onLogHarvest,onEditHarvest,onDeleteHarvest,onAddFeed,onEditFeed,onDeleteFeed,onDeleteWater,onUpdateSchedule,onDeleteSchedule,onAddNutrient,onTransplant,onWater}) {
   const [tab,setTab]=useState("overview");
   const [noteText,setNoteText]=useState("");
   const [editingNoteIdx,setEditingNoteIdx]=useState(null);
@@ -1021,6 +1002,7 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
   const [confirmDone,setConfirmDone]=useState(false);
   const [confirmLost,setConfirmLost]=useState(false);
   const [confirmDelete,setConfirmDelete]=useState(false);
+  const [showStagePicker,setShowStagePicker]=useState(false);
   const [editingFeedIdx,setEditingFeedIdx]=useState(null);
   const [editFeedData,setEditFeedData]=useState({nutrient:"",qty:"",unit:"tbsp",water:""});
   const [deleteFeedIdx,setDeleteFeedIdx]=useState(null);
@@ -1036,7 +1018,8 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
   const feedLog=crop.feedLog||[];
   const waterLog=crop.waterLog||[];
   const overdue=Object.entries(schedules).some(([n,d])=>{const l=[...feedLog].reverse().find(f=>f.nutrient===n);return l&&daysAgo(l.date)>=scheduleDays(d);});
-  const ws=hwStatus(crop);
+  const ref=harvestRef(crop);
+  const estHarvestDate=ref&&crop.daysToMaturity?harvestFmt(ref,crop.daysToMaturity):null;
   const nextSow=crop.successionDays?succDate(crop.seedDate,crop.successionDays):null;
   const sowDiff=nextSow?daysUntil(nextSow):null;
   const lastWater=waterLog.length?waterLog[waterLog.length-1]:null;
@@ -1103,13 +1086,13 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
               <StatTile label={crop.inContainer?"Container":"Growing In"} value={crop.inContainer&&crop.containerSize?crop.containerSize:crop.inContainer?"Container":"Ground / Bed"}/>
               <StatTile label={crop.startType==="direct"?"Sow Date":"Start Date"} value={fmtDate(crop.seedDate)}/>
               {crop.transplantDate?<StatTile label="Transplanted" value={fmtDate(crop.transplantDate)}/>:<StatTile label="Weeks Since Start" value={crop.seedDate?`${weeksAgo(crop.seedDate)} wks`:"—"}/>}
-              <StatTile label="Est. Harvest" value={(()=>{const ref=crop.startType==="direct"?crop.seedDate:(crop.startType==="indoor"?crop.transplantDate:crop.seedDate);return harvestFmt(ref,crop.daysToMaturity)||"—";})()}/>
+              <StatTile label="Est. Harvest" value={estHarvestDate||"—"}/>
               <StatTile label="Days to Maturity" value={crop.daysToMaturity?`${crop.daysToMaturity}d`:"—"}/>
               <StatTile label="💧 Last Watered" value={lastWater?daysWater===0?"Today":`${fmtDate(lastWater.date)}`:"Never"}/>
               <StatTile label="🌿 Last Fed" value={lastFeed?daysFed===0?"Today":`${fmtDate(lastFeed.date)}`:"Never"}/>
             </div>
 
-            {/* Stage Timeline */}
+            {/* Stage Timeline — tap to change stage */}
             {(()=>{
               if(!stageHistory.length) return null;
               const deduped=stageHistory.filter((s,i)=>{
@@ -1119,8 +1102,11 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
               if(!deduped.length) return null;
               if(deduped.length===1 && daysAgo(deduped[0].date)<=0) return null;
               return(
-                <div style={{background:"white",borderRadius:"12px",padding:"14px",border:`1px solid ${C.border}`}}>
-                  <SLabel mt="0">Stage Timeline</SLabel>
+                <div onClick={()=>setShowStagePicker(true)} style={{background:"white",borderRadius:"12px",padding:"14px",border:`1.5px solid ${C.border}`,cursor:"pointer",position:"relative"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"10px"}}>
+                    <SLabel mt="0">Stage Timeline</SLabel>
+                    <span style={{fontSize:"0.72rem",color:C.greenMid,fontWeight:600}}>Change ›</span>
+                  </div>
                   <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
                     {deduped.map((s,i)=>{
                       const sc=STAGE_COLORS[s.stage]||STAGE_COLORS.Seed;
@@ -1142,7 +1128,14 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
               );
             })()}
 
-            {/* Feeding Schedule */}
+            {/* Change stage button when timeline not shown yet */}
+            {(!stageHistory.length||(stageHistory.length===1&&daysAgo(stageHistory[0].date)<=0))&&(
+              <button onClick={()=>setShowStagePicker(true)} style={{display:"flex",alignItems:"center",gap:"10px",background:"white",borderRadius:"12px",padding:"12px 14px",border:`1.5px solid ${C.border}`,cursor:"pointer",textAlign:"left",width:"100%"}}>
+                <div style={{width:"10px",height:"10px",borderRadius:"50%",background:(STAGE_COLORS[crop.stage]||STAGE_COLORS.Seed).dot,flexShrink:0}}/>
+                <div style={{flex:1,fontSize:"0.88rem",fontWeight:600,color:C.text}}>Stage: {crop.stage}</div>
+                <span style={{fontSize:"0.72rem",color:C.greenMid,fontWeight:600}}>Change ›</span>
+              </button>
+            )}
             {Object.keys(schedules).length>0&&(
               <div style={{background:"white",borderRadius:"12px",padding:"14px",border:`1px solid ${overdue?"#fcd34d":C.border}`}}>
                 <SLabel mt="0">Feeding Schedule</SLabel>
@@ -1211,29 +1204,14 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
                 </div>
               </div>
             )}
-            {ws&&(()=>{
-              if(ws.inWindow) return(
-                <div style={{background:"#faf5ff",borderRadius:"14px",padding:"16px",border:"1.5px solid #e9d5ff"}}>
-                  <div style={{fontSize:"0.7rem",fontWeight:700,color:"#7c3aed",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:"6px"}}>🌾 Harvest Window Open</div>
-                  <div style={{fontSize:"1rem",fontWeight:700,color:"#4c1d95",marginBottom:"4px"}}>Est. maturity {fmtDate(ws.matDate)}{ws.daysPastMat>0?` · ${ws.daysPastMat}d past`:""}</div>
-                  <div style={{fontSize:"0.8rem",color:"#7c3aed",marginBottom:"12px"}}>Open since {fmtDate(ws.openDate)} · stays open until marked Done or Lost</div>
-                  <button onClick={()=>setShowHarvest(true)} style={{width:"100%",padding:"11px",borderRadius:"10px",border:"none",background:"#8b5cf6",color:"white",fontWeight:700,fontSize:"0.88rem",cursor:"pointer"}}>🌿 Log a Harvest{total?` · ${total.value}${total.unit} total`:""}</button>
-                </div>
-              );
-              if(ws.daysToOpen>0&&ws.daysToOpen<=14) return(
-                <div style={{background:"#faf5ff",borderRadius:"14px",padding:"14px",border:"1.5px solid #e9d5ff"}}>
-                  <div style={{fontSize:"0.7rem",fontWeight:700,color:"#7c3aed",letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:"4px"}}>🌾 Harvest Window</div>
-                  <div style={{fontSize:"0.92rem",fontWeight:600,color:"#4c1d95"}}>Opens in {ws.daysToOpen} day{ws.daysToOpen!==1?"s":""} · {fmtDate(ws.openDate)}</div>
-                  <div style={{fontSize:"0.8rem",color:"#7c3aed",marginTop:"2px"}}>Est. maturity {fmtDate(ws.matDate)}</div>
-                </div>
-              );
-              return(
-                <div style={{background:"#f9fafb",borderRadius:"14px",padding:"12px 14px",border:`1px solid ${C.border}`}}>
-                  <div style={{fontSize:"0.7rem",fontWeight:700,color:C.textFaint,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:"3px"}}>🌾 Harvest Window</div>
-                  <div style={{fontSize:"0.9rem",color:C.textSub}}>Opens {fmtDate(ws.openDate)} · est. maturity {fmtDate(ws.matDate)}</div>
-                </div>
-              );
-            })()}
+            {/* Log Harvest button — always available on active crops */}
+            {crop.stage!=="Done"&&crop.stage!=="Lost"&&(
+              <button onClick={()=>setShowHarvest(true)} style={{display:"flex",alignItems:"center",gap:"10px",background:"white",borderRadius:"12px",padding:"12px 14px",border:`1px solid ${C.border}`,cursor:"pointer",textAlign:"left",width:"100%"}}>
+                <span style={{fontSize:"1.2rem"}}>🌾</span>
+                <div style={{flex:1}}><div style={{fontSize:"0.88rem",fontWeight:600,color:C.text}}>Log a Harvest</div><div style={{fontSize:"0.75rem",color:C.textSub,marginTop:"2px"}}>{total?`${total.value} ${total.unit} total logged`:"No harvests logged yet"}</div></div>
+                <span style={{color:C.textFaint}}>›</span>
+              </button>
+            )}
 
             {/* Succession */}
             {nextSow&&<div style={{background:sowDiff!==null&&sowDiff<=3?"#f0fdf4":"#f9fafb",borderRadius:"14px",padding:"12px 14px",border:`1.5px solid ${sowDiff!==null&&sowDiff<=3?"#86efac":C.border}`}}><div style={{fontSize:"0.7rem",fontWeight:700,color:C.greenMid,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:"4px"}}>🌱 Succession</div><div style={{fontSize:"0.92rem",fontWeight:600,color:C.text}}>Next sow: {fmtDate(nextSow)}{sowDiff!==null&&<span style={{marginLeft:"8px",fontSize:"0.82rem",fontWeight:400,color:sowDiff<=0?C.greenMid:sowDiff<=3?"#15803d":C.textSub}}>{sowDiff<=0?"🟢 Sow now!":`in ${sowDiff}d`}</span>}</div></div>}
@@ -1416,6 +1394,12 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
 
       </div>
     </Panel>
+    <StagePickerSheet show={showStagePicker} currentStage={crop.stage} onClose={()=>setShowStagePicker(false)} onSelect={(stage,date)=>{
+      setShowStagePicker(false);
+      if(stage==="Done"){onMarkDone({...crop,stage:"Done"});return;}
+      if(stage==="Lost"){onMarkLost({...crop,stage:"Lost"});return;}
+      onChangeStage(crop.id,stage,date);
+    }}/>
     <FeedLogSheet show={showFeed} crop={crop} allCrops={allCrops} nutrients={nutrients} onAddNutrient={onAddNutrient} onAddFeed={onAddFeed} onEditFeed={onEditFeed} onDeleteFeed={onDeleteFeed} onClose={()=>setShowFeed(false)}/>
     <HarvestLogSheet show={showHarvest} crop={crop} onLog={onLogHarvest} onClose={()=>setShowHarvest(false)}/>
     <TransplantSheet show={showTransplant} crop={crop} locations={locations} onTransplant={onTransplant} onClose={()=>setShowTransplant(false)}/>
@@ -1439,7 +1423,6 @@ function CropCard({crop,onClick,onWater}) {
   const feedLog=crop.feedLog||[];
   const waterLog=crop.waterLog||[];
   const overdue=Object.entries(schedules).some(([n,d])=>{const l=[...feedLog].reverse().find(f=>f.nutrient===n);return l&&daysAgo(l.date)>=scheduleDays(d);});
-  const ws=hwStatus(crop);
   const nextSow=crop.successionDays?succDate(crop.seedDate,crop.successionDays):null;
   const sowSoon=nextSow&&daysUntil(nextSow)<=3;
   const lastWater=waterLog.length?waterLog[waterLog.length-1]:null;
@@ -1447,10 +1430,11 @@ function CropCard({crop,onClick,onWater}) {
   const lastFeed=feedLog.length?feedLog[feedLog.length-1]:null;
   const daysFed=lastFeed?daysAgo(lastFeed.date):null;
   const dInStage=daysSinceStage(crop);
-  const estHarvest=harvestFmt(crop.startType==="direct"?crop.seedDate:(crop.startType==="indoor"?crop.transplantDate:crop.seedDate),crop.daysToMaturity);
+  const ref=harvestRef(crop);
+  const estHarvest=ref&&crop.daysToMaturity?harvestFmt(ref,crop.daysToMaturity):null;
   const wateredToday=daysWater===0;
   return(
-    <div style={{background:"white",borderRadius:"16px",overflow:"hidden",border:`1.5px solid ${ws?.inWindow?"#c4b5fd":overdue?"#fcd34d":C.border}`,boxShadow:ws?.inWindow?"0 2px 12px rgba(139,92,246,0.12)":"0 1px 6px rgba(0,0,0,0.06)",userSelect:"none"}}>
+    <div style={{background:"white",borderRadius:"16px",overflow:"hidden",border:`1.5px solid ${overdue?"#fcd34d":C.border}`,boxShadow:"0 1px 6px rgba(0,0,0,0.06)",userSelect:"none"}}>
       <div style={{height:"4px",background:`linear-gradient(to right,${acc.from},${acc.to})`}}/>
       <div onClick={onClick} style={{padding:"12px 14px",cursor:"pointer"}}>        <div style={{marginBottom:"8px"}}>
           <div style={{fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.1em",color:C.textFaint,textTransform:"uppercase",marginBottom:"2px"}}>{crop.name}</div>
@@ -1461,7 +1445,7 @@ function CropCard({crop,onClick,onWater}) {
           <span style={{fontSize:"0.82rem",fontWeight:700,color:sc.text}}>{crop.stage}</span>
           {dInStage!==null&&<span style={{fontSize:"0.75rem",color:C.textFaint}}>· {dInStage}d in stage</span>}
         </div>
-        {estHarvest&&<div style={{fontSize:"0.75rem",color:ws?.inWindow?"#7c3aed":C.textSub,marginBottom:"4px",fontWeight:ws?.inWindow?700:500}}>🌾 Est. harvest: {estHarvest}{ws&&!ws.inWindow&&ws.daysToOpen>0?` · in ${ws.daysToOpen}d`:""}{ws?.inWindow?" · window open":""}</div>}
+        {estHarvest&&<div style={{fontSize:"0.75rem",color:C.textSub,marginBottom:"4px"}}>🌾 Est. harvest: {estHarvest}</div>}
         {lastFeed&&<div style={{fontSize:"0.72rem",color:C.textSub,marginBottom:"2px"}}>🌿 Last fed: <strong style={{color:C.text,fontWeight:600}}>{lastFeed.nutrient}</strong> · {daysFed===0?"today":`${daysFed}d ago`}</div>}
         {lastWater&&<div style={{fontSize:"0.72rem",color:C.textSub,marginBottom:"2px"}}>💧 Last watered: {daysWater===0?"today":`${daysWater}d ago`}</div>}
         <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",marginTop:"4px"}}>
@@ -1541,6 +1525,65 @@ function FeedAllSheet({show,location,crops,nutrients,onFeedAll,onClose}) {
   );
 }
 
+// ── Stage Picker Sheet ─────────────────────────────────────────
+function StagePickerSheet({show,currentStage,onSelect,onClose}) {
+  const [date,setDate]=useState(todayStr());
+  const [chosen,setChosen]=useState(null);
+  useEffect(()=>{if(show){setDate(todayStr());setChosen(null);}}, [show]);
+  const ACTIVE_STAGES=["Seed","Seedling","Vegetative","Flowering","Fruiting","Harvesting"];
+  const END_STAGES=["Done","Lost"];
+  return(
+    <Sheet show={show} onClose={onClose} title="Change Stage">
+      <div style={{display:"flex",flexDirection:"column",gap:"14px",paddingTop:"4px"}}>
+        <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
+          {ACTIVE_STAGES.map(s=>{
+            const sc=STAGE_COLORS[s]||STAGE_COLORS.Seed;
+            const isCurrent=s===currentStage;
+            const isChosen=s===chosen;
+            return(
+              <button key={s} onClick={()=>setChosen(isCurrent?null:s)}
+                style={{display:"flex",alignItems:"center",gap:"12px",padding:"12px 14px",borderRadius:"12px",border:`2px solid ${isChosen?sc.dot:isCurrent?"#d1d5db":C.border}`,background:isChosen?sc.bg:isCurrent?"#f9fafb":"white",cursor:isCurrent?"default":"pointer",textAlign:"left"}}>
+                <div style={{width:"10px",height:"10px",borderRadius:"50%",background:sc.dot,flexShrink:0}}/>
+                <div style={{flex:1,fontSize:"0.95rem",fontWeight:600,color:isCurrent?C.textFaint:C.text}}>{s}</div>
+                {isCurrent&&<span style={{fontSize:"0.72rem",color:C.textFaint,fontWeight:500}}>Current</span>}
+                {isChosen&&<span style={{fontSize:"0.9rem"}}>✓</span>}
+              </button>
+            );
+          })}
+          <div style={{borderTop:`1px solid ${C.border}`,paddingTop:"6px",display:"flex",flexDirection:"column",gap:"6px"}}>
+            {END_STAGES.map(s=>{
+              const isCurrent=s===currentStage;
+              const isChosen=s===chosen;
+              return(
+                <button key={s} onClick={()=>setChosen(isCurrent?null:s)}
+                  style={{display:"flex",alignItems:"center",gap:"12px",padding:"12px 14px",borderRadius:"12px",border:`2px solid ${isChosen?"#fca5a5":isCurrent?"#d1d5db":C.border}`,background:isChosen?"#fef2f2":isCurrent?"#f9fafb":"white",cursor:isCurrent?"default":"pointer",textAlign:"left"}}>
+                  <div style={{width:"10px",height:"10px",borderRadius:"50%",background:STAGE_COLORS[s]?.dot||"#9ca3af",flexShrink:0}}/>
+                  <div style={{flex:1,fontSize:"0.95rem",fontWeight:600,color:isCurrent?C.textFaint:"#991b1b"}}>{s}</div>
+                  {isCurrent&&<span style={{fontSize:"0.72rem",color:C.textFaint,fontWeight:500}}>Current</span>}
+                  {isChosen&&<span style={{fontSize:"0.9rem"}}>✓</span>}
+                  {!isCurrent&&!isChosen&&<span style={{fontSize:"0.72rem",color:"#dc2626",fontWeight:500}}>Archives crop</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        {chosen&&chosen!==currentStage&&(
+          <>
+            <div>
+              <div style={{fontSize:"0.78rem",fontWeight:600,color:C.textSub,marginBottom:"6px",letterSpacing:"0.04em",textTransform:"uppercase"}}>Date of change</div>
+              <input type="date" value={date} onChange={e=>setDate(e.target.value)} max={todayStr()}
+                style={{width:"100%",padding:"12px 14px",borderRadius:"10px",border:`1.5px solid ${C.border}`,fontSize:"0.95rem",background:"white",outline:"none"}}/>
+            </div>
+            <button onClick={()=>{if(chosen&&date)onSelect(chosen,date);}} style={{background:END_STAGES.includes(chosen)?"#ef4444":C.green,color:"white",border:"none",borderRadius:"12px",padding:"14px",fontWeight:700,fontSize:"0.95rem",cursor:"pointer"}}>
+              {END_STAGES.includes(chosen)?`Mark as ${chosen}`:`Change to ${chosen}`}
+            </button>
+          </>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
 // ── Location Panel ─────────────────────────────────────────────
 function LocationPanel({show,location,crops,nutrients,onClose,onCropTap,onAddCrop,onWater,onWaterAll,onFeedAll}) {
   const locCrops=crops.filter(c=>!c.archived&&c.location===location);
@@ -1578,10 +1621,9 @@ function LocCard({loc,crops,onClick}) {
   const locCrops=crops.filter(c=>!c.archived&&c.location===loc);
   if(!locCrops.length) return null;
   const alerts=locCrops.filter(c=>{const s=c.feedSchedules||{};const fl=c.feedLog||[];return Object.entries(s).some(([n,d])=>{const l=[...fl].reverse().find(f=>f.nutrient===n);return l&&daysAgo(l.date)>=scheduleDays(d);});}).length;
-  const inWindow=locCrops.some(c=>hwStatus(c)?.inWindow);
   const swatches=locCrops.slice(0,6).map(c=>cropAccent(c.name).from);
   return(
-    <div onClick={onClick} style={{background:"white",borderRadius:"18px",overflow:"hidden",cursor:"pointer",border:`1.5px solid ${alerts>0?"#fcd34d":inWindow?"#c4b5fd":C.border}`,boxShadow:"0 2px 10px rgba(0,0,0,0.2)",userSelect:"none"}}>
+    <div onClick={onClick} style={{background:"white",borderRadius:"18px",overflow:"hidden",cursor:"pointer",border:`1.5px solid ${alerts>0?"#fcd34d":C.border}`,boxShadow:"0 2px 10px rgba(0,0,0,0.2)",userSelect:"none"}}>
       <div style={{height:"3px",display:"flex"}}>{swatches.map((c,i)=><div key={i} style={{flex:1,background:c}}/>)}</div>
       <div style={{padding:"14px 16px"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"14px"}}>
@@ -1591,7 +1633,6 @@ function LocCard({loc,crops,onClick}) {
           </div>
           <div style={{display:"flex",gap:"5px",alignItems:"center"}}>
             {alerts>0&&<span style={{background:"#fbbf24",color:"white",fontSize:"0.65rem",fontWeight:700,padding:"2px 8px",borderRadius:"6px"}}>⚠ {alerts}</span>}
-            {inWindow&&<span style={{background:"#8b5cf6",color:"white",fontSize:"0.65rem",fontWeight:700,padding:"2px 8px",borderRadius:"6px"}}>🌾</span>}
             <span style={{color:C.textFaint,fontSize:"0.9rem"}}>›</span>
           </div>
         </div>
@@ -2441,11 +2482,13 @@ function App() {
     setCrops(cs=>cs.map(c=>{if(c.id!==id)return c;const note={date:now,text:noteText,auto:true};return{...c,location:toLoc,transplantDate:date,inContainer,containerSize:containerSize||"",notes:[...c.notes,note]};}));
     setSelCrop(p=>{if(!p||p.id!==id)return p;const note={date:now,text:noteText,auto:true};return{...p,location:toLoc,transplantDate:date,inContainer,containerSize:containerSize||"",notes:[...p.notes,note]};});
   };
-  const changeStage=(id,stage)=>{
+  const changeStage=(id,stage,date)=>{
     const now=ts();
-    const note={date:now,text:`Stage changed to ${stage}`,auto:true};
-    setCrops(cs=>cs.map(c=>{if(c.id!==id)return c;const sh=[...(c.stageHistory||[]),{stage,date:t0}];return{...c,stage,stageHistory:sh,notes:[...c.notes,note]};}));
-    setSelCrop(p=>{if(!p||p.id!==id)return p;const sh=[...(p.stageHistory||[]),{stage,date:t0}];return{...p,stage,stageHistory:sh,notes:[...p.notes,note]};});
+    const stageDate=date||t0;
+    const isGermination=stage==="Seedling";
+    const note={date:now,text:isGermination?"Seed germinated 🌱":`Stage changed to ${stage}`,auto:true};
+    setCrops(cs=>cs.map(c=>{if(c.id!==id)return c;const sh=[...(c.stageHistory||[]),{stage,date:stageDate}];return{...c,stage,stageHistory:sh,notes:[...c.notes,note]};}));
+    setSelCrop(p=>{if(!p||p.id!==id)return p;const sh=[...(p.stageHistory||[]),{stage,date:stageDate}];return{...p,stage,stageHistory:sh,notes:[...p.notes,note]};});
   };
   const addNutrient=n=>setNutrients(ns=>ns.includes(n)?ns:[...ns,n]);
   const updateSchedule=(cropId,nutrient,schedObj)=>{
@@ -2548,6 +2591,7 @@ function App() {
         onMarkDone={c=>{saveCrop({...c,stage:"Done",archived:true});setView(selLoc?"location":"dashboard");setSelCrop(null);}}
         onMarkLost={c=>{saveCrop({...c,stage:"Lost",archived:true});setView(selLoc?"location":"dashboard");setSelCrop(null);}}
         onDeleteCrop={id=>{setCrops(cs=>cs.filter(c=>c.id!==id));setView(selLoc?"location":"dashboard");setSelCrop(null);}}
+        onChangeStage={changeStage}
         onAddNote={addNote} onEditNote={editNote} onDeleteNote={deleteNote}
         onLogHarvest={logHarvest} onEditHarvest={editHarvest} onDeleteHarvest={deleteHarvest}
         onAddFeed={logFeed} onEditFeed={editFeed} onDeleteFeed={deleteFeed} onDeleteWater={deleteWater} onAddNutrient={addNutrient}
