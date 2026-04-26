@@ -1858,62 +1858,62 @@ function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onClose
         {loading&&<div style={{textAlign:"center",padding:"3rem 0",color:C.textFaint}}>Fetching weather…</div>}
         {error&&<div style={{background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:"12px",padding:"14px",fontSize:"0.85rem",color:"#991b1b"}}>{error}<div style={{marginTop:"8px"}}><button onClick={onRefresh} style={{background:"#ef4444",color:"white",border:"none",borderRadius:"8px",padding:"6px 14px",fontSize:"0.82rem",fontWeight:600,cursor:"pointer"}}>Retry</button></div></div>}
         {today&&(
-          <div style={{background:heroBg,borderRadius:"18px",padding:"22px 20px",color:"white",boxShadow:"0 4px 20px rgba(14,165,233,0.2)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"14px"}}>
+          <div style={{background:heroBg,borderRadius:"18px",padding:"16px 18px",color:"white",boxShadow:"0 4px 20px rgba(14,165,233,0.2)"}}>
+            {/* Top row: date + location + emoji */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"10px"}}>
               <div>
-                <div style={{fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.14em",opacity:0.7,textTransform:"uppercase",marginBottom:"2px"}}>{isNight?"Tonight":"Today"}</div>
-                <div style={{fontSize:"0.88rem",fontWeight:600,opacity:0.9,marginBottom:"3px"}}>{now.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}</div>
-                {location&&<div style={{fontSize:"0.82rem",opacity:0.75,fontWeight:500}}>📍 {location.city}, {location.state}</div>}
+                <div style={{fontSize:"0.6rem",fontWeight:700,letterSpacing:"0.14em",opacity:0.65,textTransform:"uppercase",marginBottom:"1px"}}>{isNight?"Tonight":"Today"} · {now.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}</div>
+                {location&&<div style={{fontSize:"0.78rem",opacity:0.7,fontWeight:500}}>📍 {location.city}, {location.state}</div>}
               </div>
-              <div style={{fontSize:"3rem",lineHeight:1}}>{heroEmoji}</div>
+              <div style={{fontSize:"2.4rem",lineHeight:1}}>{heroEmoji}</div>
             </div>
-            <div style={{display:"flex",alignItems:"baseline",gap:"12px",marginBottom:"4px"}}>
-              <div style={{fontSize:"3.4rem",fontWeight:700,lineHeight:1}}>{Math.round(today.currentTemp)}°</div>
-              <div style={{display:"flex",flexDirection:"column",gap:"2px"}}>
-                <div style={{fontSize:"0.82rem",opacity:0.9}}>High <strong>{Math.round(today.high)}°</strong></div>
-                <div style={{fontSize:"0.82rem",opacity:0.9}}>Low <strong>{Math.round(today.low)}°</strong></div>
+            {/* Temp row */}
+            <div style={{display:"flex",alignItems:"baseline",gap:"10px",marginBottom:"2px"}}>
+              <div style={{fontSize:"3rem",fontWeight:700,lineHeight:1}}>{Math.round(today.currentTemp)}°</div>
+              <div style={{display:"flex",flexDirection:"column",gap:"1px"}}>
+                <div style={{fontSize:"0.78rem",opacity:0.85}}>H <strong>{Math.round(today.high)}°</strong> · L <strong>{Math.round(today.low)}°</strong></div>
+                {today.feelsLike!=null&&<div style={{fontSize:"0.75rem",opacity:0.7}}>Feels like {Math.round(today.feelsLike)}°</div>}
               </div>
             </div>
-            {today.feelsLike!=null&&<div style={{fontSize:"0.82rem",opacity:0.8,marginBottom:"6px"}}>Feels like {Math.round(today.feelsLike)}°</div>}
-            <div style={{fontSize:"1rem",fontWeight:600,marginBottom:"14px"}}>{isNight&&today.info.label!=="Clear sky"?today.info.label:isNight?"Clear night":today.info.label}</div>
-            {/* Sunrise / Sunset row */}
+            <div style={{fontSize:"0.88rem",fontWeight:600,marginBottom:"10px",opacity:0.9}}>{isNight&&today.info.label!=="Clear sky"?today.info.label:isNight?"Clear night":today.info.label}</div>
+            {/* Sunrise/sunset */}
             {(today.sunrise||today.sunset)&&(
-              <div style={{display:"flex",gap:"8px",marginBottom:"10px"}}>
-                {today.sunrise&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"10px",padding:"7px 12px",flex:1,textAlign:"center"}}>
-                  <div style={{fontSize:"0.62rem",opacity:0.7,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:"2px"}}>🌅 Sunrise</div>
-                  <div style={{fontSize:"0.92rem",fontWeight:600}}>{fmtTime(today.sunrise)}</div>
+              <div style={{display:"flex",gap:"6px",marginBottom:"8px"}}>
+                {today.sunrise&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"8px",padding:"5px 10px",flex:1,textAlign:"center"}}>
+                  <div style={{fontSize:"0.58rem",opacity:0.65,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌅 Sunrise</div>
+                  <div style={{fontSize:"0.82rem",fontWeight:600}}>{fmtTime(today.sunrise)}</div>
                 </div>}
-                {today.sunset&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"10px",padding:"7px 12px",flex:1,textAlign:"center"}}>
-                  <div style={{fontSize:"0.62rem",opacity:0.7,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:"2px"}}>🌇 Sunset</div>
-                  <div style={{fontSize:"0.92rem",fontWeight:600}}>{fmtTime(today.sunset)}</div>
+                {today.sunset&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"8px",padding:"5px 10px",flex:1,textAlign:"center"}}>
+                  <div style={{fontSize:"0.58rem",opacity:0.65,textTransform:"uppercase",letterSpacing:"0.06em"}}>🌇 Sunset</div>
+                  <div style={{fontSize:"0.82rem",fontWeight:600}}>{fmtTime(today.sunset)}</div>
                 </div>}
               </div>
             )}
-            {/* 2-column grid for weather details */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
-              <div style={{background:"rgba(255,255,255,0.15)",borderRadius:"10px",padding:"8px 12px"}}>
-                <div style={{fontSize:"0.65rem",opacity:0.7,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:"2px"}}>Humidity</div>
-                <div style={{fontSize:"0.95rem",fontWeight:600}}>{Math.round(today.humidity)}%</div>
+            {/* Stats grid */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px"}}>
+              <div style={{background:"rgba(255,255,255,0.12)",borderRadius:"8px",padding:"6px 8px"}}>
+                <div style={{fontSize:"0.55rem",opacity:0.65,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"1px"}}>Humidity</div>
+                <div style={{fontSize:"0.85rem",fontWeight:600}}>{Math.round(today.humidity)}%</div>
               </div>
-              {today.dewPoint!=null&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"10px",padding:"8px 12px"}}>
-                <div style={{fontSize:"0.65rem",opacity:0.7,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:"2px"}}>Dew Point</div>
-                <div style={{fontSize:"0.95rem",fontWeight:600}}>{Math.round(today.dewPoint)}°</div>
+              {today.dewPoint!=null&&<div style={{background:"rgba(255,255,255,0.12)",borderRadius:"8px",padding:"6px 8px"}}>
+                <div style={{fontSize:"0.55rem",opacity:0.65,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"1px"}}>Dew Pt</div>
+                <div style={{fontSize:"0.85rem",fontWeight:600}}>{Math.round(today.dewPoint)}°</div>
               </div>}
-              {today.wind!=null&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"10px",padding:"8px 12px"}}>
-                <div style={{fontSize:"0.65rem",opacity:0.7,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:"2px"}}>Wind</div>
-                <div style={{fontSize:"0.95rem",fontWeight:600}}>{Math.round(today.wind)} mph</div>
+              {today.uvIndex!=null&&<div style={{background:"rgba(255,255,255,0.12)",borderRadius:"8px",padding:"6px 8px"}}>
+                <div style={{fontSize:"0.55rem",opacity:0.65,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"1px"}}>UV</div>
+                <div style={{fontSize:"0.85rem",fontWeight:600}}>{Math.round(today.uvIndex)} <span style={{fontSize:"0.65rem",opacity:0.8}}>{today.uvIndex>=8?"VHi":today.uvIndex>=6?"Hi":today.uvIndex>=3?"Mod":"Low"}</span></div>
               </div>}
-              {today.windGusts!=null&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"10px",padding:"8px 12px"}}>
-                <div style={{fontSize:"0.65rem",opacity:0.7,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:"2px"}}>Gusts</div>
-                <div style={{fontSize:"0.95rem",fontWeight:600}}>{Math.round(today.windGusts)} mph</div>
+              {today.wind!=null&&<div style={{background:"rgba(255,255,255,0.12)",borderRadius:"8px",padding:"6px 8px"}}>
+                <div style={{fontSize:"0.55rem",opacity:0.65,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"1px"}}>Wind</div>
+                <div style={{fontSize:"0.85rem",fontWeight:600}}>{Math.round(today.wind)} <span style={{fontSize:"0.65rem",opacity:0.8}}>mph</span></div>
               </div>}
-              {today.uvIndex!=null&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"10px",padding:"8px 12px"}}>
-                <div style={{fontSize:"0.65rem",opacity:0.7,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:"2px"}}>UV Index</div>
-                <div style={{fontSize:"0.95rem",fontWeight:600}}>{Math.round(today.uvIndex)} <span style={{fontSize:"0.72rem",fontWeight:400,opacity:0.85}}>{today.uvIndex>=8?"Very High":today.uvIndex>=6?"High":today.uvIndex>=3?"Moderate":"Low"}</span></div>
+              {today.windGusts!=null&&<div style={{background:"rgba(255,255,255,0.12)",borderRadius:"8px",padding:"6px 8px"}}>
+                <div style={{fontSize:"0.55rem",opacity:0.65,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"1px"}}>Gusts</div>
+                <div style={{fontSize:"0.85rem",fontWeight:600}}>{Math.round(today.windGusts)} <span style={{fontSize:"0.65rem",opacity:0.8}}>mph</span></div>
               </div>}
-              {today.precipProb>0&&<div style={{background:"rgba(255,255,255,0.15)",borderRadius:"10px",padding:"8px 12px"}}>
-                <div style={{fontSize:"0.65rem",opacity:0.7,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:"2px"}}>Rain Chance</div>
-                <div style={{fontSize:"0.95rem",fontWeight:600}}>{today.precipProb}%{today.precip>0?` · ${today.precip.toFixed(2)}"`:""}</div>
+              {today.precipProb>0&&<div style={{background:"rgba(255,255,255,0.12)",borderRadius:"8px",padding:"6px 8px"}}>
+                <div style={{fontSize:"0.55rem",opacity:0.65,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"1px"}}>Rain</div>
+                <div style={{fontSize:"0.85rem",fontWeight:600}}>{today.precipProb}%{today.precip>0?<span style={{fontSize:"0.65rem",opacity:0.8}}> · {today.precip.toFixed(2)}"</span>:""}</div>
               </div>}
             </div>
           </div>
@@ -2550,26 +2550,26 @@ function App() {
       </div>
 
       {/* Bottom Nav — 4 items */}
-      <div style={{flexShrink:0,background:"rgba(14,21,14,0.97)",backdropFilter:"blur(24px)",borderTop:"1px solid rgba(255,255,255,0.06)",paddingBottom:"max(16px,env(safe-area-inset-bottom))",display:"flex",alignItems:"stretch",zIndex:200}}>
-        <button onClick={()=>{if(settings?.zip)loadWeather(settings.zip);setView("weather");}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"3px",padding:"10px 4px",background:"none",border:"none",color:"rgba(255,255,255,0.45)",cursor:"pointer"}}>
+      <div style={{flexShrink:0,background:"rgba(14,21,14,0.97)",backdropFilter:"blur(24px)",borderTop:"1px solid rgba(255,255,255,0.06)",paddingBottom:"env(safe-area-inset-bottom)",display:"flex",alignItems:"stretch",zIndex:200}}>
+        <button onClick={()=>{if(settings?.zip)loadWeather(settings.zip);setView("weather");}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"3px",padding:"10px 4px 8px",background:"none",border:"none",color:"rgba(255,255,255,0.45)",cursor:"pointer"}}>
           <span style={{fontSize:"1.2rem",lineHeight:1}}>{weatherLoading?"⟳":todayW?todayW.info.emoji:"🌡"}</span>
           <span style={{fontSize:"0.58rem",fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>{todayW?`${Math.round(todayW.currentTemp)}°`:"Weather"}</span>
         </button>
-        <button onClick={()=>setView("todo")} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"3px",padding:"10px 4px",background:"none",border:"none",color:"rgba(255,255,255,0.45)",cursor:"pointer",position:"relative"}}>
+        <button onClick={()=>setView("todo")} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"3px",padding:"10px 4px 8px",background:"none",border:"none",color:"rgba(255,255,255,0.45)",cursor:"pointer",position:"relative"}}>
           <span style={{fontSize:"1.2rem",lineHeight:1}}>☑️</span>
           <span style={{fontSize:"0.58rem",fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>To-Do</span>
           {taskCount>0&&<span style={{position:"absolute",top:"6px",right:"calc(50% - 20px)",background:C.amber,color:"white",borderRadius:"10px",minWidth:"17px",height:"17px",fontSize:"0.58rem",fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{taskCount}</span>}
         </button>
-        <button onClick={()=>{setEditCrop(null);navigate("addCrop");}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"3px",padding:"6px 4px",background:"none",border:"none",cursor:"pointer"}}>
+        <button onClick={()=>{setEditCrop(null);navigate("addCrop");}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"3px",padding:"6px 4px 8px",background:"none",border:"none",cursor:"pointer"}}>
           <div style={{width:"44px",height:"44px",borderRadius:"50%",background:C.green,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 16px rgba(34,197,94,0.35)"}}>
             <span style={{fontSize:"1.5rem",color:"#052e16",lineHeight:1,marginTop:"-1px"}}>+</span>
           </div>
         </button>
-        <button onClick={()=>setView("report")} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"3px",padding:"10px 4px",background:"none",border:"none",color:"rgba(255,255,255,0.45)",cursor:"pointer"}}>
+        <button onClick={()=>setView("report")} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"3px",padding:"10px 4px 8px",background:"none",border:"none",color:"rgba(255,255,255,0.45)",cursor:"pointer"}}>
           <span style={{fontSize:"1.2rem",lineHeight:1}}>📊</span>
           <span style={{fontSize:"0.58rem",fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>Report</span>
         </button>
-        <button onClick={()=>setView("settings")} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"3px",padding:"10px 4px",background:"none",border:"none",color:"rgba(255,255,255,0.45)",cursor:"pointer"}}>
+        <button onClick={()=>setView("settings")} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"3px",padding:"10px 4px 8px",background:"none",border:"none",color:"rgba(255,255,255,0.45)",cursor:"pointer"}}>
           <span style={{fontSize:"1.2rem",lineHeight:1}}>⚙️</span>
           <span style={{fontSize:"0.58rem",fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>Settings</span>
         </button>
