@@ -2518,18 +2518,19 @@ function App() {
 
   return(
     <div style={{width:"100%",height:"100%",background:C.bg,color:"white",display:"flex",flexDirection:"column",overflow:"hidden",position:"fixed",top:0,left:0,right:0,bottom:0}}>
-      {/* Dashboard scroll area — flex:1 with min-height:0 prevents overflow into nav */}
-      <div style={{flex:1,minHeight:0,overflowY:"auto",overflowX:"hidden",WebkitOverflowScrolling:"touch",paddingBottom:"16px"}}>
-        <div style={{padding:"max(16px,env(safe-area-inset-top)) 18px 14px",flexShrink:0}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-            <div>
-              {zone&&<div style={{fontSize:"0.6rem",fontWeight:700,letterSpacing:"0.18em",color:C.greenFg,textTransform:"uppercase",marginBottom:"4px",opacity:0.7}}>Zone {zone}</div>}
-              <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>{gardenName}</h1>
-              <div style={{fontSize:"0.78rem",color:C.dashSub,marginTop:"5px"}}>{active.length} active crop{active.length!==1?"s":""}{activeLocs.length>0?` · ${activeLocs.length} location${activeLocs.length!==1?"s":""}`:""}</div>
-            </div>
-            <img src={ICON_SRC} alt="" style={{width:"48px",height:"48px",borderRadius:"12px",flexShrink:0,marginTop:"4px",opacity:0.9}}/>
+      {/* Fixed header — outside scroll area so it never moves */}
+      <div style={{flexShrink:0,padding:"max(16px,env(safe-area-inset-top)) 18px 14px",background:C.bg}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div>
+            {zone&&<div style={{fontSize:"0.6rem",fontWeight:700,letterSpacing:"0.18em",color:C.greenFg,textTransform:"uppercase",marginBottom:"4px",opacity:0.7}}>Zone {zone}</div>}
+            <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>{gardenName}</h1>
+            <div style={{fontSize:"0.78rem",color:C.dashSub,marginTop:"5px"}}>{active.length} active crop{active.length!==1?"s":""}{activeLocs.length>0?` · ${activeLocs.length} location${activeLocs.length!==1?"s":""}`:""}</div>
           </div>
+          <img src={ICON_SRC} alt="" style={{width:"48px",height:"48px",borderRadius:"12px",flexShrink:0,marginTop:"4px",opacity:0.9}}/>
         </div>
+      </div>
+      {/* Scrollable crop list */}
+      <div style={{flex:1,minHeight:0,overflowY:"auto",overflowX:"hidden",WebkitOverflowScrolling:"touch",paddingBottom:"16px"}}>
         <div style={{padding:"0 14px",display:"flex",flexDirection:"column",gap:"10px"}}>
           {activeLocs.length===0&&orphanedCrops.length===0?(
             <div style={{textAlign:"center",padding:"5rem 0",color:"rgba(255,255,255,0.2)"}}>
@@ -2550,28 +2551,28 @@ function App() {
       </div>
 
       {/* Bottom Nav */}
-      <div style={{flexShrink:0,background:"rgba(14,21,14,0.97)",backdropFilter:"blur(24px)",borderTop:"1px solid rgba(255,255,255,0.06)",paddingBottom:"env(safe-area-inset-bottom)",display:"flex",alignItems:"stretch",zIndex:200,minHeight:"60px"}}>
-        <button onClick={()=>{if(settings?.zip)loadWeather(settings.zip);setView("weather");}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"4px",padding:"12px 4px",background:"none",border:"none",color:"rgba(255,255,255,0.55)",cursor:"pointer"}}>
-          <span style={{fontSize:"1.4rem",lineHeight:1}}>{weatherLoading?"⟳":todayW?todayW.info.emoji:"🌡"}</span>
-          <span style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>{todayW?`${Math.round(todayW.currentTemp)}°`:"Weather"}</span>
+      <div style={{flexShrink:0,background:"rgba(14,21,14,0.97)",backdropFilter:"blur(24px)",borderTop:"1px solid rgba(255,255,255,0.06)",paddingBottom:"env(safe-area-inset-bottom)",display:"flex",alignItems:"stretch",zIndex:200}}>
+        <button onClick={()=>{if(settings?.zip)loadWeather(settings.zip);setView("weather");}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"5px",minHeight:"68px",background:"none",border:"none",color:"rgba(255,255,255,0.55)",cursor:"pointer"}}>
+          <span style={{fontSize:"1.6rem",lineHeight:1}}>{weatherLoading?"⟳":todayW?todayW.info.emoji:"🌡"}</span>
+          <span style={{fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>{todayW?`${Math.round(todayW.currentTemp)}°`:"Weather"}</span>
         </button>
-        <button onClick={()=>setView("todo")} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"4px",padding:"12px 4px",background:"none",border:"none",color:"rgba(255,255,255,0.55)",cursor:"pointer",position:"relative"}}>
-          <span style={{fontSize:"1.4rem",lineHeight:1}}>☑️</span>
-          <span style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>To-Do</span>
-          {taskCount>0&&<span style={{position:"absolute",top:"8px",right:"calc(50% - 22px)",background:C.amber,color:"white",borderRadius:"10px",minWidth:"18px",height:"18px",fontSize:"0.62rem",fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px"}}>{taskCount}</span>}
+        <button onClick={()=>setView("todo")} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"5px",minHeight:"68px",background:"none",border:"none",color:"rgba(255,255,255,0.55)",cursor:"pointer",position:"relative"}}>
+          <span style={{fontSize:"1.6rem",lineHeight:1}}>☑️</span>
+          <span style={{fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>To-Do</span>
+          {taskCount>0&&<span style={{position:"absolute",top:"10px",right:"calc(50% - 24px)",background:C.amber,color:"white",borderRadius:"10px",minWidth:"19px",height:"19px",fontSize:"0.62rem",fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px"}}>{taskCount}</span>}
         </button>
-        <button onClick={()=>{setEditCrop(null);navigate("addCrop");}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"4px",padding:"8px 4px",background:"none",border:"none",cursor:"pointer"}}>
-          <div style={{width:"50px",height:"50px",borderRadius:"50%",background:C.green,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 16px rgba(34,197,94,0.4)"}}>
-            <span style={{fontSize:"1.7rem",color:"#052e16",lineHeight:1,marginTop:"-1px"}}>+</span>
+        <button onClick={()=>{setEditCrop(null);navigate("addCrop");}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"5px",minHeight:"68px",background:"none",border:"none",cursor:"pointer"}}>
+          <div style={{width:"54px",height:"54px",borderRadius:"50%",background:C.green,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 16px rgba(34,197,94,0.4)"}}>
+            <span style={{fontSize:"1.9rem",color:"#052e16",lineHeight:1,marginTop:"-2px"}}>+</span>
           </div>
         </button>
-        <button onClick={()=>setView("report")} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"4px",padding:"12px 4px",background:"none",border:"none",color:"rgba(255,255,255,0.55)",cursor:"pointer"}}>
-          <span style={{fontSize:"1.4rem",lineHeight:1}}>📊</span>
-          <span style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>Report</span>
+        <button onClick={()=>setView("report")} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"5px",minHeight:"68px",background:"none",border:"none",color:"rgba(255,255,255,0.55)",cursor:"pointer"}}>
+          <span style={{fontSize:"1.6rem",lineHeight:1}}>📊</span>
+          <span style={{fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>Report</span>
         </button>
-        <button onClick={()=>setView("settings")} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"4px",padding:"12px 4px",background:"none",border:"none",color:"rgba(255,255,255,0.55)",cursor:"pointer"}}>
-          <span style={{fontSize:"1.4rem",lineHeight:1}}>⚙️</span>
-          <span style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>Settings</span>
+        <button onClick={()=>setView("settings")} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"5px",minHeight:"68px",background:"none",border:"none",color:"rgba(255,255,255,0.55)",cursor:"pointer"}}>
+          <span style={{fontSize:"1.6rem",lineHeight:1}}>⚙️</span>
+          <span style={{fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>Settings</span>
         </button>
       </div>
 
