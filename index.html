@@ -2530,7 +2530,7 @@ function App() {
         </div>
       </div>
       {/* Scrollable crop list */}
-      <div style={{flex:1,minHeight:0,overflowY:"auto",overflowX:"hidden",WebkitOverflowScrolling:"touch",paddingBottom:"16px"}}>
+      <div style={{flex:1,minHeight:0,overflowY:"auto",overflowX:"hidden",WebkitOverflowScrolling:"touch",paddingBottom:"calc(68px + env(safe-area-inset-bottom) + 16px)"}}>
         <div style={{padding:"0 14px",display:"flex",flexDirection:"column",gap:"10px"}}>
           {activeLocs.length===0&&orphanedCrops.length===0?(
             <div style={{textAlign:"center",padding:"5rem 0",color:"rgba(255,255,255,0.2)"}}>
@@ -2550,8 +2550,8 @@ function App() {
         </div>
       </div>
 
-      {/* Bottom Nav */}
-      <div style={{flexShrink:0,background:"rgba(14,21,14,0.97)",backdropFilter:"blur(24px)",borderTop:"1px solid rgba(255,255,255,0.06)",paddingBottom:"env(safe-area-inset-bottom)",display:"flex",alignItems:"stretch",zIndex:200}}>
+      {/* Bottom Nav — fixed so it cannot be dragged */}
+      <div style={{position:"fixed",bottom:0,left:0,right:0,background:"rgba(14,21,14,0.97)",backdropFilter:"blur(24px)",borderTop:"1px solid rgba(255,255,255,0.06)",paddingBottom:"env(safe-area-inset-bottom)",display:"flex",alignItems:"stretch",zIndex:500}}>
         <button onClick={()=>{if(settings?.zip)loadWeather(settings.zip);setView("weather");}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"5px",minHeight:"68px",background:"none",border:"none",color:"rgba(255,255,255,0.55)",cursor:"pointer"}}>
           <span style={{fontSize:"1.6rem",lineHeight:1}}>{weatherLoading?"⟳":todayW?todayW.info.emoji:"🌡"}</span>
           <span style={{fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.04em",textTransform:"uppercase"}}>{todayW?`${Math.round(todayW.currentTemp)}°`:"Weather"}</span>
