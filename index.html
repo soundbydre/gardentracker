@@ -509,12 +509,12 @@ function SettingsPanel({show,settings,locations,crops,user,syncing,onSave,onSign
   if(!show) return null;
   return(
     <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",flexDirection:"column",background:C.bg,fontFamily:F.sans}}>
-      <div style={{padding:"max(52px,calc(env(safe-area-inset-top)+16px)) 18px 14px",flexShrink:0,borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
+      <div style={{padding:"max(68px,calc(env(safe-area-inset-top)+16px)) 18px 14px",flexShrink:0,borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-          <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>Settings</h1>
-          <button onClick={onClose} style={{background:"rgba(255,255,255,0.08)",border:"none",borderRadius:"10px",padding:"8px 14px",color:"rgba(232,245,233,0.6)",fontSize:"0.85rem",fontWeight:600,cursor:"pointer"}}>
-            Back
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.08)",border:"none",borderRadius:"10px",padding:"8px 14px",color:"rgba(232,245,233,0.6)",fontSize:"0.85rem",fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+            <span style={{fontSize:"1rem"}}>‹</span> Back
           </button>
+          <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>Settings</h1>
         </div>
       </div>
       <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"20px 16px"}}>
@@ -684,12 +684,12 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
   return(
     <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",flexDirection:"column",background:C.bg,fontFamily:F.sans}}>
       {/* Header */}
-      <div style={{padding:"max(52px,calc(env(safe-area-inset-top)+16px)) 18px 14px",flexShrink:0,borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
+      <div style={{padding:"max(68px,calc(env(safe-area-inset-top)+16px)) 18px 14px",flexShrink:0,borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-          <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>{isEdit?"Edit Crop":"Add Crop"}</h1>
           <button onClick={onClose} style={{background:"rgba(255,255,255,0.08)",border:"none",borderRadius:"10px",padding:"8px 14px",color:"rgba(232,245,233,0.6)",fontSize:"0.85rem",fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-            <span style={{fontSize:"1rem"}}>‹</span> Cancel
+            <span style={{fontSize:"1rem"}}>‹</span> {isEdit?"Cancel":"Cancel"}
           </button>
+          <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1,textAlign:"right"}}>{isEdit?"Edit Crop":"Add Crop"}</h1>
         </div>
       </div>
 
@@ -958,10 +958,10 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
     <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",flexDirection:"column",background:C.bg,fontFamily:F.sans}}>
 
       {/* Hero gradient */}
-      <div style={{background:`linear-gradient(135deg,${acc.from},${acc.to})`,padding:"max(52px,calc(env(safe-area-inset-top)+16px)) 18px 18px",flexShrink:0}}>
+      <div style={{background:`linear-gradient(135deg,${acc.from},${acc.to})`,padding:"max(68px,calc(env(safe-area-inset-top)+16px)) 18px 18px",flexShrink:0}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
-          <button onClick={onClose} style={{background:"rgba(0,0,0,0.2)",border:"none",borderRadius:"10px",padding:"7px 12px",color:"rgba(255,255,255,0.85)",fontSize:"0.82rem",fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
-            <span style={{fontSize:"1rem"}}>‹</span> Back
+          <button onClick={onClose} style={{background:"rgba(0,0,0,0.25)",border:"none",borderRadius:"12px",padding:"10px 16px",color:"rgba(255,255,255,0.9)",fontSize:"0.85rem",fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5,minHeight:"40px"}}>
+            <span style={{fontSize:"1.1rem"}}>‹</span> Back
           </button>
           {(()=>{
             const sh=(crop.stageHistory||[]).filter((s,i,a)=>!(a[i-1]&&a[i-1].stage===s.stage&&a[i-1].date===s.date));
@@ -1820,7 +1820,7 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFe
   return(
     <div style={{position:"fixed",inset:0,zIndex:150,display:"flex",flexDirection:"column",background:C.bg,fontFamily:F.sans}}>
       {/* Header */}
-      <div style={{padding:"max(52px,calc(env(safe-area-inset-top)+16px)) 18px 0",flexShrink:0,background:C.bg}}>
+      <div style={{padding:"max(68px,calc(env(safe-area-inset-top)+16px)) 18px 0",flexShrink:0,background:C.bg}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
           <div>
             <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>To-Do</h1>
@@ -2015,7 +2015,7 @@ function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onClose
   return(
     <div style={{position:"fixed",inset:0,zIndex:150,display:"flex",flexDirection:"column",background:C.bg,fontFamily:F.sans}}>
       {/* Header */}
-      <div style={{padding:"max(52px,calc(env(safe-area-inset-top)+16px)) 18px 12px",flexShrink:0,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+      <div style={{padding:"max(68px,calc(env(safe-area-inset-top)+16px)) 18px 12px",flexShrink:0,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
         <div>
           <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>Weather</h1>
           <div style={{fontSize:"0.78rem",color:C.dashSub,marginTop:5}}>{location?`📍 ${location.city}, ${location.state}`:"No location set"}</div>
@@ -2185,7 +2185,7 @@ function ReportPanel({show,crops,onRestore,onDeleteCrop,onClose}) {
   return(
     <div style={{position:"fixed",inset:0,zIndex:150,display:"flex",flexDirection:"column",background:C.bg,fontFamily:F.sans}}>
       {/* Header */}
-      <div style={{padding:"max(52px,calc(env(safe-area-inset-top)+16px)) 18px 0",flexShrink:0}}>
+      <div style={{padding:"max(68px,calc(env(safe-area-inset-top)+16px)) 18px 0",flexShrink:0}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
           <div>
             <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>Report</h1>
@@ -2830,7 +2830,7 @@ function App() {
   return(
     <div style={{width:"100%",height:"100%",background:C.bg,color:"white",display:"flex",flexDirection:"column",overflow:"hidden",position:"fixed",top:0,left:0,right:0,bottom:0}}>
       {/* Fixed header */}
-      <div style={{flexShrink:0,padding:"max(52px,calc(env(safe-area-inset-top)+16px)) 18px 14px",background:C.bg}}>
+      <div style={{flexShrink:0,padding:"max(68px,calc(env(safe-area-inset-top)+16px)) 18px 14px",background:C.bg}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             {zone&&<div style={{fontSize:"0.6rem",fontWeight:700,letterSpacing:"0.18em",color:C.greenFg,textTransform:"uppercase",marginBottom:"4px",opacity:0.7}}>Zone {zone}</div>}
