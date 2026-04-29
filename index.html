@@ -29,25 +29,35 @@
   :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
 </style>
 <script>
-// Detect actual status bar height for non-PWA Safari
+// Detect safe area insets for non-PWA Safari
 (function(){
   var el = document.createElement('div');
   el.style.cssText = 'position:fixed;top:env(safe-area-inset-top,0px);left:0;width:1px;height:1px;pointer-events:none;';
+  var elB = document.createElement('div');
+  elB.style.cssText = 'position:fixed;bottom:env(safe-area-inset-bottom,0px);left:0;width:1px;height:1px;pointer-events:none;';
   document.documentElement.appendChild(el);
+  document.documentElement.appendChild(elB);
   setTimeout(function(){
     var sat = el.getBoundingClientRect().top;
-    // If safe area not working (returns 0), use a sensible default for iPhone
-    if(sat === 0 && /iPhone|iPad/.test(navigator.userAgent)){
-      // iPhone with notch/Dynamic Island: ~59px, older iPhone: ~20px
-      // Use window.screen to estimate
+    var wh = window.innerHeight;
+    var bRect = elB.getBoundingClientRect().bottom;
+    var sab = wh - bRect;
+    if(/iPhone|iPad/.test(navigator.userAgent)){
       var sh = window.screen.height;
       var dpr = window.devicePixelRatio || 1;
       var logical = sh / dpr;
-      // iPhone 14/15 Pro: 852+ logical px, notch models: 667+
-      var inset = logical >= 812 ? 59 : 20;
-      document.documentElement.style.setProperty('--sat', inset + 'px');
+      if(sat === 0){
+        var inset = logical >= 812 ? 59 : 20;
+        document.documentElement.style.setProperty('--sat', inset + 'px');
+      }
+      if(sab <= 1){
+        // iPhone with home indicator: ~34px, older iPhone: 0
+        var bInset = logical >= 812 ? 34 : 0;
+        document.documentElement.style.setProperty('--sab', bInset + 'px');
+      }
     }
     document.documentElement.removeChild(el);
+    document.documentElement.removeChild(elB);
   }, 100);
 })();
 </script>
@@ -805,7 +815,7 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
               {/* Dates */}
               <div>
                 {sLabel("Dates")}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
                   <div>
                     {fLabel(seedLabel,true)}
                     <input type="date" value={f.seedDate} onChange={e=>set("seedDate",e.target.value)} style={{...(errors.seedDate?errStyle:iStyle),colorScheme:"dark"}}/>
@@ -2926,12 +2936,12 @@ function App() {
       </div>
 
       {/* Bottom Nav - design spec: Home · To-Do · [FAB] · Weather · Report */}
-      <div style={{flexShrink:0,background:C.bg,borderTop:"1px solid rgba(255,255,255,0.07)",paddingBottom:"max(28px,var(--sab, env(safe-area-inset-bottom, 20px)))",paddingTop:"12px",display:"flex",alignItems:"center",justifyContent:"space-around",zIndex:200,touchAction:"none"}}>
-        <button onClick={()=>setView("dashboard")} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",background:"none",border:"none",cursor:"pointer",padding:"2px 0",color:view==="dashboard"?C.green:"rgba(232,245,233,0.28)",touchAction:"manipulation",flex:1}}>
+      <div style={{flexShrink:0,background:C.bg,borderTop:"1px solid rgba(255,255,255,0.07)",paddingBottom:"calc(max(34px,var(--sab, env(safe-area-inset-bottom, 34px))) + 8px)",paddingTop:"12px",display:"flex",alignItems:"center",justifyContent:"space-around",zIndex:200,touchAction:"none"}}>
+        <button onClick={()=>setView("dashboard")} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",background:"none",border:"none",cursor:"pointer",padding:"6px 0",color:view==="dashboard"?C.green:"rgba(232,245,233,0.28)",touchAction:"manipulation",flex:1}}>
           <svg width="24" height="24" viewBox="0 0 22 22" fill="none"><path d="M3 9.5L11 3l8 6.5V19a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/><path d="M8 20v-7h6v7" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/></svg>
           <span style={{fontSize:"12px",fontWeight:600,lineHeight:1}}>Home</span>
         </button>
-        <button onClick={()=>setView("todo")} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",background:"none",border:"none",cursor:"pointer",padding:"2px 0",color:view==="todo"?C.green:"rgba(232,245,233,0.28)",position:"relative",touchAction:"manipulation",flex:1}}>
+        <button onClick={()=>setView("todo")} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",background:"none",border:"none",cursor:"pointer",padding:"6px 0",color:view==="todo"?C.green:"rgba(232,245,233,0.28)",position:"relative",touchAction:"manipulation",flex:1}}>
           {taskCount>0&&<span style={{position:"absolute",top:0,left:"50%",transform:"translateX(4px)",background:"#ef4444",color:"white",fontSize:"9px",fontWeight:700,minWidth:"16px",height:"16px",borderRadius:"8px",display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid ${C.bg}`,pointerEvents:"none"}}>{taskCount}</span>}
           <svg width="24" height="24" viewBox="0 0 22 22" fill="none"><rect x="3" y="5" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.7"/><path d="M7 9l2 2 4-4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/><path d="M7 14h8" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
           <span style={{fontSize:"12px",fontWeight:600,lineHeight:1}}>To-Do</span>
@@ -2940,11 +2950,11 @@ function App() {
         <button onClick={()=>{setEditCrop(null);navigate("addCrop");}} style={{width:"52px",height:"52px",borderRadius:"26px",background:C.green,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 0 6px rgba(34,197,94,0.15), 0 4px 16px rgba(34,197,94,0.4)",transform:"translateY(-8px)",flexShrink:0,touchAction:"manipulation"}}>
           <svg width="24" height="24" viewBox="0 0 22 22" fill="none"><path d="M11 5v12M5 11h12" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"/></svg>
         </button>
-        <button onClick={()=>{if(settings?.zip)loadWeather(settings.zip);setView("weather");}} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",background:"none",border:"none",cursor:"pointer",padding:"2px 0",color:view==="weather"?C.green:"rgba(232,245,233,0.28)",touchAction:"manipulation",minWidth:"52px",flex:1}}>
+        <button onClick={()=>{if(settings?.zip)loadWeather(settings.zip);setView("weather");}} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",background:"none",border:"none",cursor:"pointer",padding:"6px 0",color:view==="weather"?C.green:"rgba(232,245,233,0.28)",touchAction:"manipulation",minWidth:"52px",flex:1}}>
           <span style={{fontSize:"18px",lineHeight:1}}>{weatherLoading?"⟳":todayW?todayW.info.emoji:"🌡"}</span>
           <span style={{fontSize:"10px",fontWeight:700,lineHeight:1,minWidth:"40px",textAlign:"center",display:"block"}}>{todayW?`${Math.round(todayW.currentTemp)}°`:"Weather"}</span>
         </button>
-        <button onClick={()=>setView("report")} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",background:"none",border:"none",cursor:"pointer",padding:"2px 0",color:view==="report"?C.green:"rgba(232,245,233,0.28)",touchAction:"manipulation",flex:1}}>
+        <button onClick={()=>setView("report")} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",background:"none",border:"none",cursor:"pointer",padding:"6px 0",color:view==="report"?C.green:"rgba(232,245,233,0.28)",touchAction:"manipulation",flex:1}}>
           <svg width="24" height="24" viewBox="0 0 22 22" fill="none"><rect x="3" y="3" width="16" height="16" rx="2" stroke="currentColor" strokeWidth="1.7"/><path d="M7 14v2M11 11v5M15 8v8" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
           <span style={{fontSize:"12px",fontWeight:600,lineHeight:1}}>Report</span>
         </button>
