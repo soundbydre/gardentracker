@@ -637,7 +637,7 @@ function SettingsPanel({show,settings,locations,crops,user,syncing,onSave,onSign
 const CROP_NAMES_LIST=["Tomato","Pepper","Cucumber","Lettuce","Spinach","Kale","Carrot","Onion","Garlic","Broccoli","Basil","Cilantro","Arugula","Squash","Zucchini","Eggplant","Radish","Beet","Corn","Celery","Scallions","Cannabis","Hemp"];
 const VARIETY_MAP={"Tomato":["San Marzano","Cherokee Purple","Brandywine","Sun Gold","Roma","Kathy's Red Barn"],"Kale":["Lacinato","Red Russian","Winterbor"],"Lettuce":["Black Seeded Simpson","Buttercrunch","Romaine","Oak Leaf"],"Pepper":["Jimmy Nardello","Shishito","Banana","Jalapeño"],"Basil":["Genovese","Thai","Purple","Lemon"],"Onion":["Clear Dawn","Walla Walla","Red Zeppelin","Candy"]};
 function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocation,onSave,onClose}) {
-  const isEdit=!!initial;
+  const isEdit=!!(initial&&initial.id);
   const blank={name:"",variety:"",location:defaultLocation||locations?.[0]||"",startType:null,seedDate:todayStr(),daysToMaturity:"",stage:"Seed",successionDays:"",inContainer:false,containerSize:"",notes:[],harvests:[],feedLog:[],feedSchedules:{},stageHistory:[],waterLog:[],archived:false};
   const [f,setF]=useState(blank);
   const [errors,setErrors]=useState({});
@@ -1797,7 +1797,7 @@ const URGENCY_STYLES={
   upcoming:{bg:"rgba(255,255,255,0.04)",border:"rgba(255,255,255,0.08)",dot:"rgba(255,255,255,0.25)",label:"UPCOMING",labelColor:"rgba(232,245,233,0.35)"},
 };
 
-function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFeed,onCropTap,onClose}) {
+function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFeed,onCropTap,onSuccessionSow,onClose}) {
   const [tab,setTab]=useState("tasks");
   const [addText,setAddText]=useState("");
   const [addDue,setAddDue]=useState("");
@@ -1805,10 +1805,12 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFe
   const [showDone,setShowDone]=useState(false);
   const [confirmDelete,setConfirmDelete]=useState(null);
   const [confirmFeed,setConfirmFeed]=useState(null);
+  const [dismissedSucc,setDismissedSucc]=useState([]);
   const t0=todayStr();
 
   function genFeedTasks(){
     const tasks=[];
+    const seenSuccession=new Set(); // track name+variety to avoid duplicate succession tasks
     (crops||[]).filter(c=>!c.archived).forEach(c=>{
       const s=c.feedSchedules||{};const fl=c.feedLog||[];
       Object.entries(s).forEach(([nutrient,d])=>{
@@ -1826,7 +1828,21 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFe
         const sub=da>=intervalDays?`${da-intervalDays}d overdue`:daysLeft<=0?"Due today":`Due in ${daysLeft}d · ${fmtDate(dueDate)}`;
         tasks.push({id:`feed-${c.id}-${nutrient}`,type:"feed",crop:c,nutrient,qty:d.qty&&d.unit?`${d.qty} ${d.unit}`:null,water:d.water&&d.waterUnit?`${d.water} ${d.waterUnit}`:null,urgency,sub,due:dueDate});
       });
-      if(c.successionDays){const diff=daysUntil(succDate(c.seedDate,c.successionDays));if(diff!==null&&diff<=7) tasks.push({id:`suc-${c.id}`,type:"suc",crop:c,nutrient:null,urgency:diff<=0?"overdue":"soon",sub:diff<=0?"Sow now!":`Sow in ${diff}d`,due:null});}
+      if(c.successionDays){
+        const groupKey=`${c.name}::${c.variety}`;
+        if(seenSuccession.has(groupKey)) return; // already added a task for this group
+        // Find the most recently started crop with the same name+variety
+        const sameCrops=(crops||[]).filter(x=>!x.archived&&x.name===c.name&&x.variety===c.variety&&x.successionDays===c.successionDays&&x.seedDate);
+        const latestSeedDate=sameCrops.map(x=>x.seedDate).sort().pop()||c.seedDate;
+        const nextSowDate=succDate(latestSeedDate,c.successionDays);
+        const diff=daysUntil(nextSowDate);
+        if(diff!==null&&(diff<=7||diff<0)){
+          seenSuccession.add(groupKey);
+          const urgency=diff<0?"overdue":diff===0?"overdue":"soon";
+          const sub=diff<0?`${Math.abs(diff)}d overdue - sow now!`:diff===0?"Sow today!":`Sow in ${diff}d`;
+          tasks.push({id:`suc-${c.id}`,type:"suc",crop:c,nutrient:null,urgency,sub,due:nextSowDate,daysOverdue:diff<0?Math.abs(diff):0});
+        }
+      }
     });
     return tasks.sort((a,b)=>({overdue:0,soon:1,upcoming:2}[a.urgency]||0)-({overdue:0,soon:1,upcoming:2}[b.urgency]||0));
   }
@@ -1890,21 +1906,29 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFe
             </div>
 
             {/* Empty */}
-            {pending.length===0&&done.length===0&&succTasks.length===0&&<div style={{textAlign:"center",padding:"2rem 0",color:"rgba(255,255,255,0.2)",fontStyle:"italic",fontSize:"0.9rem"}}>No tasks yet - you're all caught up 🌿</div>}
+            {pending.length===0&&done.length===0&&succTasks.filter(t=>!dismissedSucc.includes(t.id)).length===0&&<div style={{textAlign:"center",padding:"2rem 0",color:"rgba(255,255,255,0.2)",fontStyle:"italic",fontSize:"0.9rem"}}>No tasks yet - you're all caught up 🌿</div>}
 
             {/* Succession planting reminders */}
-            {succTasks.map(t=>{
+            {succTasks.filter(t=>!dismissedSucc.includes(t.id)).map(t=>{
               const acc=cropAccent(t.crop.name);
               const isOverdue=t.urgency==="overdue";
               return(
-                <div key={t.id} onClick={()=>onCropTap&&onCropTap(t.crop)} style={{display:"flex",alignItems:"flex-start",gap:12,background:isOverdue?"rgba(34,197,94,0.08)":"rgba(255,255,255,0.04)",border:`1px solid ${isOverdue?"rgba(134,239,172,0.3)":"rgba(255,255,255,0.06)"}`,borderRadius:"14px",padding:"12px 14px",cursor:"pointer",borderLeft:`3px solid ${acc.from}`}}>
-                  <span style={{fontSize:"1.1rem",flexShrink:0,marginTop:1}}>🌱</span>
-                  <div style={{flex:1}}>
-                    <div style={{fontSize:"0.78rem",fontWeight:700,color:isOverdue?C.green:"rgba(134,239,172,0.55)",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:2}}>Succession Sowing</div>
-                    <div style={{fontSize:"0.92rem",color:"white",lineHeight:1.4}}>{t.crop.name}{t.crop.variety?` · ${t.crop.variety}`:""}</div>
-                    <div style={{fontSize:"0.75rem",color:isOverdue?C.green:"rgba(232,245,233,0.4)",marginTop:3,fontWeight:600}}>{t.sub}</div>
+                <div key={t.id} style={{background:isOverdue?"rgba(239,68,68,0.07)":"rgba(34,197,94,0.06)",border:`1px solid ${isOverdue?"rgba(239,68,68,0.25)":"rgba(134,239,172,0.2)"}`,borderRadius:"14px",padding:"12px 14px",borderLeft:`3px solid ${isOverdue?"#ef4444":C.green}`}}>
+                  <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                    <span style={{fontSize:"1.1rem",flexShrink:0,marginTop:1}}>🌱</span>
+                    <div style={{flex:1,cursor:"pointer"}} onClick={()=>onCropTap&&onCropTap(t.crop)}>
+                      <div style={{fontSize:"0.72rem",fontWeight:700,color:isOverdue?"#fca5a5":C.green,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:2}}>Succession Sowing {isOverdue?"· Overdue":""}</div>
+                      <div style={{fontSize:"0.92rem",color:"white",lineHeight:1.4,fontFamily:F.serif,fontStyle:"italic"}}>{t.crop.variety||t.crop.name}</div>
+                      <div style={{fontSize:"0.72rem",color:"rgba(232,245,233,0.45)",marginTop:1}}>{t.crop.name} · every {t.crop.successionDays}d</div>
+                      <div style={{fontSize:"0.78rem",color:isOverdue?"#fca5a5":C.green,marginTop:4,fontWeight:600}}>{t.sub}</div>
+                    </div>
+                    <button onClick={()=>setDismissedSucc(d=>[...d,t.id])} style={{background:"none",border:"none",color:"rgba(255,255,255,0.2)",fontSize:"1.2rem",cursor:"pointer",padding:"0 2px",lineHeight:1,flexShrink:0}}>×</button>
                   </div>
-                  <span style={{fontSize:"0.72rem",color:"rgba(232,245,233,0.25)",marginTop:2}}>›</span>
+                  <div style={{marginTop:10,display:"flex",gap:8}}>
+                    <button onClick={()=>onSuccessionSow&&onSuccessionSow(t.crop)} style={{flex:1,background:isOverdue?"#ef4444":C.green,color:"white",border:"none",borderRadius:"10px",padding:"9px 12px",fontSize:"0.82rem",fontWeight:700,cursor:"pointer"}}>
+                      🌱 Mark Sown — Start New Crop
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -2713,8 +2737,9 @@ function App() {
     });
     if(crop.archived){setView("dashboard");setSelCrop(null);}
     else{
-      if(editCrop) setSelCrop(crop); // update crop detail with saved data
-      setView(editCrop?"crop":"dashboard");
+      const isRealEdit=editCrop&&editCrop.id;
+      if(isRealEdit) setSelCrop(crop);
+      setView(isRealEdit?"crop":"dashboard");
       setEditCrop(null);
     }
   };
@@ -2901,27 +2926,27 @@ function App() {
       </div>
 
       {/* Bottom Nav - design spec: Home · To-Do · [FAB] · Weather · Report */}
-      <div style={{flexShrink:0,background:C.bg,borderTop:"1px solid rgba(255,255,255,0.07)",paddingBottom:"max(14px,var(--sab, env(safe-area-inset-bottom, 0px)))",paddingTop:"10px",display:"flex",alignItems:"center",justifyContent:"space-around",zIndex:200,touchAction:"none"}}>
+      <div style={{flexShrink:0,background:C.bg,borderTop:"1px solid rgba(255,255,255,0.07)",paddingBottom:"max(28px,var(--sab, env(safe-area-inset-bottom, 20px)))",paddingTop:"12px",display:"flex",alignItems:"center",justifyContent:"space-around",zIndex:200,touchAction:"none"}}>
         <button onClick={()=>setView("dashboard")} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",background:"none",border:"none",cursor:"pointer",padding:"2px 0",color:view==="dashboard"?C.green:"rgba(232,245,233,0.28)",touchAction:"manipulation",flex:1}}>
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M3 9.5L11 3l8 6.5V19a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/><path d="M8 20v-7h6v7" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/></svg>
-          <span style={{fontSize:"10px",fontWeight:600,lineHeight:1}}>Home</span>
+          <svg width="24" height="24" viewBox="0 0 22 22" fill="none"><path d="M3 9.5L11 3l8 6.5V19a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/><path d="M8 20v-7h6v7" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/></svg>
+          <span style={{fontSize:"12px",fontWeight:600,lineHeight:1}}>Home</span>
         </button>
         <button onClick={()=>setView("todo")} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",background:"none",border:"none",cursor:"pointer",padding:"2px 0",color:view==="todo"?C.green:"rgba(232,245,233,0.28)",position:"relative",touchAction:"manipulation",flex:1}}>
           {taskCount>0&&<span style={{position:"absolute",top:0,left:"50%",transform:"translateX(4px)",background:"#ef4444",color:"white",fontSize:"9px",fontWeight:700,minWidth:"16px",height:"16px",borderRadius:"8px",display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid ${C.bg}`,pointerEvents:"none"}}>{taskCount}</span>}
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="3" y="5" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.7"/><path d="M7 9l2 2 4-4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/><path d="M7 14h8" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
-          <span style={{fontSize:"10px",fontWeight:600,lineHeight:1}}>To-Do</span>
+          <svg width="24" height="24" viewBox="0 0 22 22" fill="none"><rect x="3" y="5" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.7"/><path d="M7 9l2 2 4-4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/><path d="M7 14h8" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
+          <span style={{fontSize:"12px",fontWeight:600,lineHeight:1}}>To-Do</span>
         </button>
         {/* Floating FAB */}
         <button onClick={()=>{setEditCrop(null);navigate("addCrop");}} style={{width:"52px",height:"52px",borderRadius:"26px",background:C.green,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 0 6px rgba(34,197,94,0.15), 0 4px 16px rgba(34,197,94,0.4)",transform:"translateY(-8px)",flexShrink:0,touchAction:"manipulation"}}>
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M11 5v12M5 11h12" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"/></svg>
+          <svg width="24" height="24" viewBox="0 0 22 22" fill="none"><path d="M11 5v12M5 11h12" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"/></svg>
         </button>
         <button onClick={()=>{if(settings?.zip)loadWeather(settings.zip);setView("weather");}} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",background:"none",border:"none",cursor:"pointer",padding:"2px 0",color:view==="weather"?C.green:"rgba(232,245,233,0.28)",touchAction:"manipulation",minWidth:"52px",flex:1}}>
           <span style={{fontSize:"18px",lineHeight:1}}>{weatherLoading?"⟳":todayW?todayW.info.emoji:"🌡"}</span>
           <span style={{fontSize:"10px",fontWeight:700,lineHeight:1,minWidth:"40px",textAlign:"center",display:"block"}}>{todayW?`${Math.round(todayW.currentTemp)}°`:"Weather"}</span>
         </button>
         <button onClick={()=>setView("report")} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",background:"none",border:"none",cursor:"pointer",padding:"2px 0",color:view==="report"?C.green:"rgba(232,245,233,0.28)",touchAction:"manipulation",flex:1}}>
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="3" y="3" width="16" height="16" rx="2" stroke="currentColor" strokeWidth="1.7"/><path d="M7 14v2M11 11v5M15 8v8" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
-          <span style={{fontSize:"10px",fontWeight:600,lineHeight:1}}>Report</span>
+          <svg width="24" height="24" viewBox="0 0 22 22" fill="none"><rect x="3" y="3" width="16" height="16" rx="2" stroke="currentColor" strokeWidth="1.7"/><path d="M7 14v2M11 11v5M15 8v8" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
+          <span style={{fontSize:"12px",fontWeight:600,lineHeight:1}}>Report</span>
         </button>
       </div>
       {/* Location Action Sheet */}
@@ -2950,10 +2975,10 @@ function App() {
         onUpdateSchedule={updateSchedule} onDeleteSchedule={deleteSchedule}
         onTransplant={transplantCrop} onWater={waterCrop}/>
 
-      <CropFormPanel show={view==="addCrop"||view==="editCrop"} initial={view==="editCrop"?editCrop:null} locations={locations} cropNames={cropNames} varieties={varieties} defaultLocation={view==="addCrop"?selLoc:null}
-        onSave={saveCrop} onClose={()=>setView(view==="editCrop"?"crop":"dashboard")}/>
+      <CropFormPanel show={view==="addCrop"||view==="editCrop"} initial={view==="editCrop"?editCrop:(view==="addCrop"&&editCrop?.id===null?editCrop:null)} locations={locations} cropNames={cropNames} varieties={varieties} defaultLocation={view==="addCrop"&&!editCrop?selLoc:null}
+        onSave={saveCrop} onClose={()=>{setEditCrop(null);setView(view==="editCrop"?"crop":"dashboard");}}/>
 
-      <TodoPanel show={view==="todo"} crops={crops} todos={todos} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} onLogFeed={logFeed} onCropTap={c=>{setSelCrop(c);setView("crop");}} onClose={()=>setView("dashboard")}/>
+      <TodoPanel show={view==="todo"} crops={crops} todos={todos} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} onLogFeed={logFeed} onCropTap={c=>{setSelCrop(c);setView("crop");}} onSuccessionSow={c=>{setEditCrop({...c,id:null,seedDate:todayStr(),stageHistory:[],waterLog:[],feedLog:[],harvests:[],notes:[],feedSchedules:{}});setView("addCrop");}} onClose={()=>setView("dashboard")}/>
       <WeatherPanel show={view==="weather"} weatherData={weatherData} location={weatherLocation} loading={weatherLoading} error={weatherError} onRefresh={()=>settings?.zip&&loadWeather(settings.zip)} onClose={()=>setView("dashboard")}/>
       <ReportPanel show={view==="report"} crops={crops} onRestore={restoreCrop} onDeleteCrop={id=>{setCrops(cs=>cs.filter(c=>c.id!==id));}} onClose={()=>setView("dashboard")}/>
       <SettingsPanel show={view==="settings"} settings={settings} locations={locations} crops={crops}
