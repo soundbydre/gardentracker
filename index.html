@@ -1823,7 +1823,7 @@ const URGENCY_STYLES={
   upcoming:{bg:"rgba(255,255,255,0.04)",border:"rgba(255,255,255,0.08)",dot:"rgba(255,255,255,0.25)",label:"UPCOMING",labelColor:"rgba(232,245,233,0.35)"},
 };
 
-function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFeed,onCropTap,onSuccessionSow,onClose}) {
+function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFeed,onCropTap,onSuccessionSow,onSettings,onClose}) {
   const [tab,setTab]=useState("tasks");
   const [addText,setAddText]=useState("");
   const [addDue,setAddDue]=useState("");
@@ -1892,7 +1892,7 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFe
             <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>To-Do</h1>
             <div style={{fontSize:"0.78rem",color:C.dashSub,marginTop:5}}>{pending.length} task{pending.length!==1?"s":""} · {overdueCount} feeding alert{overdueCount!==1?"s":""}</div>
           </div>
-          <div onClick={()=>{}} style={{position:"relative",cursor:"pointer",flexShrink:0,marginTop:4}}>
+          <div onClick={onSettings} style={{position:"relative",cursor:"pointer",flexShrink:0,marginTop:4}}>
             <img src={ICON_SRC} alt="Garden Tracker" style={{width:"44px",height:"44px",borderRadius:"11px",objectFit:"cover",boxShadow:"0 0 0 2px rgba(134,239,172,0.22)",display:"block"}}/>
             <div style={{position:"absolute",bottom:"-3px",right:"-3px",width:"17px",height:"17px",borderRadius:"9px",background:C.bgCard,border:"1.5px solid rgba(255,255,255,0.12)",display:"flex",alignItems:"center",justifyContent:"center"}}>
               <svg width="10" height="10" viewBox="0 0 11 11" fill="none"><path d="M5.5 7a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" stroke="rgba(232,245,233,0.6)" strokeWidth="1.1"/><path d="M5.5 1v1M5.5 9v1M1 5.5h1M9 5.5h1M2.1 2.1l.7.7M8.2 8.2l.7.7M8.2 2.8l-.7.7M2.8 8.2l-.7.7" stroke="rgba(232,245,233,0.6)" strokeWidth="1.1" strokeLinecap="round"/></svg>
@@ -2067,7 +2067,7 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFe
 
 
 // ── Weather Panel ──────────────────────────────────────────────
-function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onClose}) {
+function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onSettings,onClose}) {
   if(!show) return null;
   const today=weatherData?.today||null;
   const forecast=weatherData?.forecast||[];
@@ -2094,7 +2094,7 @@ function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onClose
           <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>Weather</h1>
           <div style={{fontSize:"0.78rem",color:C.dashSub,marginTop:5}}>{location?`📍 ${location.city}, ${location.state}`:"No location set"}</div>
         </div>
-        <div onClick={()=>{}} style={{position:"relative",cursor:"pointer",flexShrink:0,marginTop:4}}>
+        <div onClick={onSettings} style={{position:"relative",cursor:"pointer",flexShrink:0,marginTop:4}}>
           <img src={ICON_SRC} alt="Garden Tracker" style={{width:"44px",height:"44px",borderRadius:"11px",objectFit:"cover",boxShadow:"0 0 0 2px rgba(134,239,172,0.22)",display:"block"}}/>
           <div style={{position:"absolute",bottom:"-3px",right:"-3px",width:"17px",height:"17px",borderRadius:"9px",background:C.bgCard,border:"1.5px solid rgba(255,255,255,0.12)",display:"flex",alignItems:"center",justifyContent:"center"}}>
             <svg width="10" height="10" viewBox="0 0 11 11" fill="none"><path d="M5.5 7a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" stroke="rgba(232,245,233,0.6)" strokeWidth="1.1"/><path d="M5.5 1v1M5.5 9v1M1 5.5h1M9 5.5h1M2.1 2.1l.7.7M8.2 8.2l.7.7M8.2 2.8l-.7.7M2.8 8.2l-.7.7" stroke="rgba(232,245,233,0.6)" strokeWidth="1.1" strokeLinecap="round"/></svg>
@@ -2203,7 +2203,7 @@ function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onClose
 
 // ── Report Panel ───────────────────────────────────────────────
 // ── Report Panel ───────────────────────────────────────────────
-function ReportPanel({show,crops,onRestore,onDeleteCrop,onClose}) {
+function ReportPanel({show,crops,onRestore,onDeleteCrop,onSettings,onClose}) {
   const [sec,setSec]=useState("overview");
   const [confirmRestore,setConfirmRestore]=useState(null);
   const [confirmDeleteArchived,setConfirmDeleteArchived]=useState(null);
@@ -2265,7 +2265,7 @@ function ReportPanel({show,crops,onRestore,onDeleteCrop,onClose}) {
             <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>Report</h1>
             <div style={{fontSize:"0.78rem",color:C.dashSub,marginTop:5}}>{active.length} active · {archived.length} archived</div>
           </div>
-          <div onClick={()=>{}} style={{position:"relative",cursor:"pointer",flexShrink:0,marginTop:4}}>
+          <div onClick={onSettings} style={{position:"relative",cursor:"pointer",flexShrink:0,marginTop:4}}>
             <img src={ICON_SRC} alt="Garden Tracker" style={{width:"44px",height:"44px",borderRadius:"11px",objectFit:"cover",boxShadow:"0 0 0 2px rgba(134,239,172,0.22)",display:"block"}}/>
             <div style={{position:"absolute",bottom:"-3px",right:"-3px",width:"17px",height:"17px",borderRadius:"9px",background:C.bgCard,border:"1.5px solid rgba(255,255,255,0.12)",display:"flex",alignItems:"center",justifyContent:"center"}}>
               <svg width="10" height="10" viewBox="0 0 11 11" fill="none"><path d="M5.5 7a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" stroke="rgba(232,245,233,0.6)" strokeWidth="1.1"/><path d="M5.5 1v1M5.5 9v1M1 5.5h1M9 5.5h1M2.1 2.1l.7.7M8.2 8.2l.7.7M8.2 2.8l-.7.7M2.8 8.2l-.7.7" stroke="rgba(232,245,233,0.6)" strokeWidth="1.1" strokeLinecap="round"/></svg>
@@ -3004,9 +3004,9 @@ function App() {
       <CropFormPanel show={view==="addCrop"||view==="editCrop"} initial={view==="editCrop"?editCrop:(view==="addCrop"&&editCrop?.id===null?editCrop:null)} locations={locations} cropNames={cropNames} varieties={varieties} defaultLocation={view==="addCrop"&&!editCrop?selLoc:null}
         onSave={saveCrop} onClose={()=>{setEditCrop(null);setView(view==="editCrop"?"crop":"dashboard");}}/>
 
-      <TodoPanel show={view==="todo"} crops={crops} todos={todos} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} onLogFeed={logFeed} onCropTap={c=>{setSelCrop(c);setView("crop");}} onSuccessionSow={c=>{setEditCrop({...c,id:null,seedDate:todayStr(),stageHistory:[],waterLog:[],feedLog:[],harvests:[],notes:[],feedSchedules:{}});setView("addCrop");}} onClose={()=>setView("dashboard")}/>
-      <WeatherPanel show={view==="weather"} weatherData={weatherData} location={weatherLocation} loading={weatherLoading} error={weatherError} onRefresh={()=>settings?.zip&&loadWeather(settings.zip)} onClose={()=>setView("dashboard")}/>
-      <ReportPanel show={view==="report"} crops={crops} onRestore={restoreCrop} onDeleteCrop={id=>{setCrops(cs=>cs.filter(c=>c.id!==id));}} onClose={()=>setView("dashboard")}/>
+      <TodoPanel show={view==="todo"} crops={crops} todos={todos} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} onLogFeed={logFeed} onCropTap={c=>{setSelCrop(c);setView("crop");}} onSuccessionSow={c=>{setEditCrop({...c,id:null,seedDate:todayStr(),stageHistory:[],waterLog:[],feedLog:[],harvests:[],notes:[],feedSchedules:{}});setView("addCrop");}} onSettings={()=>setView("settings")} onClose={()=>setView("dashboard")}/>
+      <WeatherPanel show={view==="weather"} weatherData={weatherData} location={weatherLocation} loading={weatherLoading} error={weatherError} onRefresh={()=>settings?.zip&&loadWeather(settings.zip)} onSettings={()=>setView("settings")} onClose={()=>setView("dashboard")}/>
+      <ReportPanel show={view==="report"} crops={crops} onRestore={restoreCrop} onDeleteCrop={id=>{setCrops(cs=>cs.filter(c=>c.id!==id));}} onSettings={()=>setView("settings")} onClose={()=>setView("dashboard")}/>
       <SettingsPanel show={view==="settings"} settings={settings} locations={locations} crops={crops}
         user={user} syncing={syncing}
         onSave={(s,locs)=>{setSettings(p=>({...p,...s}));setLocations(locs);setView("dashboard");}}
