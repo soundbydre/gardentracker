@@ -26,7 +26,31 @@
   input:focus, select:focus, textarea:focus { outline: 2px solid #4ade80; outline-offset: -1px; }
   .cb { width:22px; height:22px; border-radius:6px; border:2px solid #d1d5db; background:white; display:flex; align-items:center; justify-content:center; flex-shrink:0; cursor:pointer; transition:all 0.15s; }
   .cb.checked { background:#22c55e; border-color:#22c55e; }
+  :root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
 </style>
+<script>
+// Detect actual status bar height for non-PWA Safari
+(function(){
+  var el = document.createElement('div');
+  el.style.cssText = 'position:fixed;top:env(safe-area-inset-top,0px);left:0;width:1px;height:1px;pointer-events:none;';
+  document.documentElement.appendChild(el);
+  setTimeout(function(){
+    var sat = el.getBoundingClientRect().top;
+    // If safe area not working (returns 0), use a sensible default for iPhone
+    if(sat === 0 && /iPhone|iPad/.test(navigator.userAgent)){
+      // iPhone with notch/Dynamic Island: ~59px, older iPhone: ~20px
+      // Use window.screen to estimate
+      var sh = window.screen.height;
+      var dpr = window.devicePixelRatio || 1;
+      var logical = sh / dpr;
+      // iPhone 14/15 Pro: 852+ logical px, notch models: 667+
+      var inset = logical >= 812 ? 59 : 20;
+      document.documentElement.style.setProperty('--sat', inset + 'px');
+    }
+    document.documentElement.removeChild(el);
+  }, 100);
+})();
+</script>
 </head>
 <body>
 <div id="root"></div>
@@ -509,7 +533,7 @@ function SettingsPanel({show,settings,locations,crops,user,syncing,onSave,onSign
   if(!show) return null;
   return(
     <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",flexDirection:"column",background:C.bg,fontFamily:F.sans}}>
-      <div style={{padding:"max(68px,calc(env(safe-area-inset-top)+16px)) 18px 14px",flexShrink:0,borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
+      <div style={{padding:"max(54px,calc(var(--sat, env(safe-area-inset-top, 50px)) + 16px)) 18px 14px",flexShrink:0,borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <button onClick={onClose} style={{background:"rgba(255,255,255,0.08)",border:"none",borderRadius:"10px",padding:"8px 14px",color:"rgba(232,245,233,0.6)",fontSize:"0.85rem",fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
             <span style={{fontSize:"1rem"}}>‹</span> Back
@@ -684,7 +708,7 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
   return(
     <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",flexDirection:"column",background:C.bg,fontFamily:F.sans}}>
       {/* Header */}
-      <div style={{padding:"max(68px,calc(env(safe-area-inset-top)+16px)) 18px 14px",flexShrink:0,borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
+      <div style={{padding:"max(54px,calc(var(--sat, env(safe-area-inset-top, 50px)) + 16px)) 18px 14px",flexShrink:0,borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <button onClick={onClose} style={{background:"rgba(255,255,255,0.08)",border:"none",borderRadius:"10px",padding:"8px 14px",color:"rgba(232,245,233,0.6)",fontSize:"0.85rem",fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
             <span style={{fontSize:"1rem"}}>‹</span> {isEdit?"Cancel":"Cancel"}
@@ -958,7 +982,7 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
     <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",flexDirection:"column",background:C.bg,fontFamily:F.sans}}>
 
       {/* Hero gradient */}
-      <div style={{background:`linear-gradient(135deg,${acc.from},${acc.to})`,padding:"max(68px,calc(env(safe-area-inset-top)+16px)) 18px 18px",flexShrink:0}}>
+      <div style={{background:`linear-gradient(135deg,${acc.from},${acc.to})`,padding:"max(54px,calc(var(--sat, env(safe-area-inset-top, 50px)) + 16px)) 18px 18px",flexShrink:0}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
           <button onClick={onClose} style={{background:"rgba(0,0,0,0.25)",border:"none",borderRadius:"12px",padding:"10px 16px",color:"rgba(255,255,255,0.9)",fontSize:"0.85rem",fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5,minHeight:"40px"}}>
             <span style={{fontSize:"1.1rem"}}>‹</span> Back
@@ -1820,7 +1844,7 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFe
   return(
     <div style={{position:"fixed",inset:0,zIndex:150,display:"flex",flexDirection:"column",background:C.bg,fontFamily:F.sans}}>
       {/* Header */}
-      <div style={{padding:"max(68px,calc(env(safe-area-inset-top)+16px)) 18px 0",flexShrink:0,background:C.bg}}>
+      <div style={{padding:"max(54px,calc(var(--sat, env(safe-area-inset-top, 50px)) + 16px)) 18px 0",flexShrink:0,background:C.bg}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
           <div>
             <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>To-Do</h1>
@@ -2015,7 +2039,7 @@ function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onClose
   return(
     <div style={{position:"fixed",inset:0,zIndex:150,display:"flex",flexDirection:"column",background:C.bg,fontFamily:F.sans}}>
       {/* Header */}
-      <div style={{padding:"max(68px,calc(env(safe-area-inset-top)+16px)) 18px 12px",flexShrink:0,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+      <div style={{padding:"max(54px,calc(var(--sat, env(safe-area-inset-top, 50px)) + 16px)) 18px 12px",flexShrink:0,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
         <div>
           <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>Weather</h1>
           <div style={{fontSize:"0.78rem",color:C.dashSub,marginTop:5}}>{location?`📍 ${location.city}, ${location.state}`:"No location set"}</div>
@@ -2185,7 +2209,7 @@ function ReportPanel({show,crops,onRestore,onDeleteCrop,onClose}) {
   return(
     <div style={{position:"fixed",inset:0,zIndex:150,display:"flex",flexDirection:"column",background:C.bg,fontFamily:F.sans}}>
       {/* Header */}
-      <div style={{padding:"max(68px,calc(env(safe-area-inset-top)+16px)) 18px 0",flexShrink:0}}>
+      <div style={{padding:"max(54px,calc(var(--sat, env(safe-area-inset-top, 50px)) + 16px)) 18px 0",flexShrink:0}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
           <div>
             <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>Report</h1>
@@ -2830,7 +2854,7 @@ function App() {
   return(
     <div style={{width:"100%",height:"100%",background:C.bg,color:"white",display:"flex",flexDirection:"column",overflow:"hidden",position:"fixed",top:0,left:0,right:0,bottom:0}}>
       {/* Fixed header */}
-      <div style={{flexShrink:0,padding:"max(68px,calc(env(safe-area-inset-top)+16px)) 18px 14px",background:C.bg}}>
+      <div style={{flexShrink:0,padding:"max(54px,calc(var(--sat, env(safe-area-inset-top, 50px)) + 16px)) 18px 14px",background:C.bg}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             {zone&&<div style={{fontSize:"0.6rem",fontWeight:700,letterSpacing:"0.18em",color:C.greenFg,textTransform:"uppercase",marginBottom:"4px",opacity:0.7}}>Zone {zone}</div>}
@@ -2877,7 +2901,7 @@ function App() {
       </div>
 
       {/* Bottom Nav - design spec: Home · To-Do · [FAB] · Weather · Report */}
-      <div style={{flexShrink:0,background:C.bg,borderTop:"1px solid rgba(255,255,255,0.07)",paddingBottom:"max(14px,env(safe-area-inset-bottom))",paddingTop:"10px",display:"flex",alignItems:"center",justifyContent:"space-around",zIndex:200,touchAction:"none"}}>
+      <div style={{flexShrink:0,background:C.bg,borderTop:"1px solid rgba(255,255,255,0.07)",paddingBottom:"max(14px,var(--sab, env(safe-area-inset-bottom, 0px)))",paddingTop:"10px",display:"flex",alignItems:"center",justifyContent:"space-around",zIndex:200,touchAction:"none"}}>
         <button onClick={()=>setView("dashboard")} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",background:"none",border:"none",cursor:"pointer",padding:"2px 0",color:view==="dashboard"?C.green:"rgba(232,245,233,0.28)",touchAction:"manipulation",flex:1}}>
           <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M3 9.5L11 3l8 6.5V19a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/><path d="M8 20v-7h6v7" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/></svg>
           <span style={{fontSize:"10px",fontWeight:600,lineHeight:1}}>Home</span>
