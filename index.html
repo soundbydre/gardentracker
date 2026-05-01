@@ -95,7 +95,37 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 async function dbLoad(userId) {
   const { data, error } = await sb.from("garden_data").select("*").eq("user_id", userId).single();
   if (error && error.code !== "PGRST116") { console.error("dbLoad error", error); return null; }
-  return data || null;
+  if(!data) return null;
+  // Repair bad capitalization from old formatter
+  const fixStr=v=>{
+    if(!v) return v;
+    let r=v.replace(/['\u2019]\s*([A-Z])/g,(_,c)=>_[0]+c.toLowerCase());
+    r=r.replace(/\b(I{1,3}|IV|VI{0,3}|IX|XI{0,3}|XIV|XV|XVI)\b/gi,m=>m.toUpperCase());
+    r=r.replace(/\b([IVX]) ([IVX])\b/g,"$1$2");
+    return r;
+  };
+  if(data.crops){
+    const fixed=data.crops.map(c=>({...c,variety:fixStr(c.variety),name:fixStr(c.name)}));
+    const needsRepair=fixed.some((c,i)=>c.variety!==data.crops[i].variety||c.name!==data.crops[i].name);
+    if(needsRepair){
+      data.crops=fixed;
+      sb.from("garden_data").upsert({user_id:userId,...data,updated_at:new Date().toISOString()},{onConflict:"user_id"});
+    }
+  }
+  if(data.varieties){
+    const fixedVars={};
+    let varsNeedRepair=false;
+    Object.entries(data.varieties).forEach(([name,arr])=>{
+      const fixedArr=(arr||[]).map(v=>fixStr(v));
+      fixedVars[fixStr(name)]=fixedArr;
+      if(fixStr(name)!==name||fixedArr.some((v,i)=>v!==arr[i])) varsNeedRepair=true;
+    });
+    if(varsNeedRepair){
+      data.varieties=fixedVars;
+      sb.from("garden_data").upsert({user_id:userId,...data,updated_at:new Date().toISOString()},{onConflict:"user_id"});
+    }
+  }
+  return data;
 }
 
 // Upsert all garden data for the user (full replace)
@@ -126,20 +156,42 @@ const STAGE_COLORS = {
   Done:       {bg:"#f3f4f6",text:"#6b7280",dot:"#9ca3af"},
   Lost:       {bg:"#fef2f2",text:"#991b1b",dot:"#fca5a5"},
 };
-const CROP_ACCENTS = {
-  Tomato:{from:"#dc2626",to:"#991b1b"},   Pepper:{from:"#ea580c",to:"#c2410c"},
-  Onion:{from:"#ca8a04",to:"#a16207"},    Carrot:{from:"#f97316",to:"#c2410c"},
-  Spinach:{from:"#16a34a",to:"#15803d"},  Lettuce:{from:"#22c55e",to:"#15803d"},
-  Broccoli:{from:"#15803d",to:"#166534"}, Cucumber:{from:"#0d9488",to:"#0f766e"},
-  Squash:{from:"#d97706",to:"#b45309"},   Basil:{from:"#4d7c0f",to:"#3f6212"},
-  Kale:{from:"#166534",to:"#14532d"},     Bean:{from:"#65a30d",to:"#4d7c0f"},
-  Pea:{from:"#16a34a",to:"#15803d"},      Cannabis:{from:"#7c3aed",to:"#5b21b6"},
-  Hemp:{from:"#6d28d9",to:"#4c1d95"},
+const CROP_COLORS = {
+  Tomato:"#e53e3e",    Pepper:"#dd6b20",    Cucumber:"#38a169",  Lettuce:"#68d391",
+  Spinach:"#276749",   Kale:"#2f855a",      Carrot:"#ed8936",    Onion:"#9f7aea",
+  Garlic:"#ecc94b",    Broccoli:"#48bb78",  Basil:"#22543d",     Cilantro:"#68d391",
+  Arugula:"#718096",   Squash:"#f6ad55",    Zucchini:"#38a169",  Eggplant:"#553c9a",
+  Radish:"#fc8181",    Beet:"#9b2c2c",      Corn:"#f6e05e",      Celery:"#9ae6b4",
+  Scallions:"#9ae6b4", Cannabis:"#276749",  Hemp:"#48bb78",
+  Bean:"#65a30d",      Pea:"#16a34a",       Cauliflower:"#e2e8f0",Cabbage:"#68d391",
+  Potato:"#d69e2e",    "Sweet Potato":"#dd6b20", Mint:"#38a169", Parsley:"#48bb78",
+  Dill:"#9ae6b4",      Rosemary:"#2d3748",  Thyme:"#4a5568",     Sage:"#718096",
+  Oregano:"#2f855a",   Chive:"#9ae6b4",     "Swiss Chard":"#fc8181", Okra:"#276749",
+  Melon:"#f6e05e",     Watermelon:"#e53e3e",Strawberry:"#fc8181", Blueberry:"#5a67d8",
+  Raspberry:"#d53f8c", Blackberry:"#553c9a",
 };
+// Palette for color picker
+const COLOR_PALETTE = [
+  "#e53e3e","#fc8181","#d53f8c","#9b2c2c","#dd6b20","#f6ad55","#ed8936","#ecc94b",
+  "#f6e05e","#48bb78","#68d391","#9ae6b4","#38a169","#2f855a","#276749","#22543d",
+  "#0d9488","#5a67d8","#9f7aea","#553c9a","#d69e2e","#718096","#4a5568","#2d3748",
+];
 const HARVEST_UNITS = ["g","oz","lb","kg","count","bundle","ml","L","fl oz"];
 const DEFAULT_NUTRIENTS = ["Fish emulsion 2-3-1","Tomato tone 3-4-6","Kelp meal","Compost tea","Worm castings","Blood meal","Bone meal","Balanced 10-10-10"];
 const DEFAULT_CROPS = ["Tomato","Pepper","Cucumber","Lettuce","Spinach","Kale","Carrot","Onion","Garlic","Broccoli","Cauliflower","Cabbage","Bean","Pea","Squash","Zucchini","Pumpkin","Eggplant","Radish","Beet","Corn","Potato","Sweet Potato","Basil","Cilantro","Mint","Parsley","Dill","Rosemary","Thyme","Sage","Oregano","Chive","Arugula","Swiss Chard","Okra","Melon","Watermelon","Strawberry","Blueberry","Raspberry","Blackberry","Cannabis","Hemp"];
 // WMO weather interpretation codes from Open-Meteo
+const USDA_ZONES_SHORT=["1a","1b","2a","2b","3a","3b","4a","4b","5a","5b","6a","6b","7a","7b","8a","8b","9a","9b","10a","10b","11a","11b"];
+const LOC_ACCENT_COLORS=["#22c55e","#f59e0b","#a78bfa","#f97316","#60a5fa","#f472b6"];
+const CROP_NAMES_LIST=["Tomato","Pepper","Cucumber","Lettuce","Spinach","Kale","Carrot","Onion","Garlic","Broccoli","Basil","Cilantro","Arugula","Squash","Zucchini","Eggplant","Radish","Beet","Corn","Celery","Scallions","Cannabis","Hemp"];
+const VARIETY_MAP={"Tomato":["San Marzano","Cherokee Purple","Brandywine","Sun Gold","Roma","Kathy's Red Barn"],"Kale":["Lacinato","Red Russian","Winterbor"],"Lettuce":["Black Seeded Simpson","Buttercrunch","Romaine","Oak Leaf"],"Pepper":["Jimmy Nardello","Shishito","Banana","Jalapeño"],"Basil":["Genovese","Thai","Purple","Lemon"],"Onion":["Clear Dawn","Walla Walla","Red Zeppelin","Candy"]};
+const STAGE_ORDER=["Seed","Seedling","Vegetative","Flowering","Fruiting","Harvesting","Done","Lost"];
+const SORT_OPTIONS=[
+  {id:"az",label:"A→Z"},
+  {id:"oldest",label:"Oldest"},
+  {id:"newest",label:"Newest"},
+  {id:"stage",label:"Stage"},
+  {id:"feed",label:"Feed Due"},
+];
 const WMO_CODES = {
   0:  {label:"Clear sky",             emoji:"☀️", desc:"Sunny and clear"},
   1:  {label:"Mainly clear",          emoji:"🌤", desc:"Mostly sunny with a few clouds"},
@@ -197,10 +249,20 @@ async function fetchWeather(lat, lon) {
 function uid(prefix="id"){ return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,9)}`; }
 let nextTodo = 500;
 const cap = s => s ? s.charAt(0).toUpperCase()+s.slice(1) : s;
-const titleCase = s => s ? s.trim().toLowerCase().replace(/\b\w/g,c=>c.toUpperCase()).replace(/\s+/g," ") : s;
+const titleCase = s => s ? s.trim().toLowerCase().replace(/(^|\s)\S/g,c=>c.toUpperCase()).replace(/\s+/g," ") : s;
 // Schedule can be a bare number (legacy) or {days, qty, unit, water, waterUnit}. Returns the interval days.
 const scheduleDays = sched => typeof sched==="number" ? sched : (sched?.days || 0);
-const cropAccent = n => { const k=Object.keys(CROP_ACCENTS).find(k=>n?.toLowerCase().includes(k.toLowerCase())); return k?CROP_ACCENTS[k]:{from:"#4d7c0f",to:"#166534"}; };
+const cropColor = (crop) => {
+  if(crop?.color) return crop.color;
+  const k = Object.keys(CROP_COLORS).find(k => crop?.name?.toLowerCase().includes(k.toLowerCase()));
+  return k ? CROP_COLORS[k] : "#4d7c0f";
+};
+const cropAccent = (nameOrCrop) => {
+  const color = typeof nameOrCrop === "string"
+    ? (Object.keys(CROP_COLORS).find(k=>nameOrCrop?.toLowerCase().includes(k.toLowerCase())) ? CROP_COLORS[Object.keys(CROP_COLORS).find(k=>nameOrCrop?.toLowerCase().includes(k.toLowerCase()))] : "#4d7c0f")
+    : cropColor(nameOrCrop);
+  return {from:color, to:color};
+};
 // Parse any date string - handles both YYYY-MM-DD and full ISO timestamps
 const parseDate = s => {
   if(!s) return null;
@@ -527,8 +589,8 @@ function Wizard({onComplete}) {
 }
 
 // ── Settings Panel ─────────────────────────────────────────────
-const USDA_ZONES_SHORT=["1a","1b","2a","2b","3a","3b","4a","4b","5a","5b","6a","6b","7a","7b","8a","8b","9a","9b","10a","10b","11a","11b"];
-const LOC_ACCENT_COLORS=["#22c55e","#f59e0b","#a78bfa","#f97316","#60a5fa","#f472b6"];
+
+
 
 function SettingsPanel({show,settings,locations,crops,user,syncing,onSave,onSignOut,onClose}) {
   const [name,setName]=useState(settings?.gardenName||"");
@@ -616,6 +678,8 @@ function SettingsPanel({show,settings,locations,crops,user,syncing,onSave,onSign
               {locs.map((loc,i)=>{
                 const count=cropCountForLoc(loc);
                 const accent=LOC_ACCENT_COLORS[i%LOC_ACCENT_COLORS.length];
+                const moveUp=()=>setLocs(ls=>{const a=[...ls];[a[i-1],a[i]]=[a[i],a[i-1]];return a;});
+                const moveDown=()=>setLocs(ls=>{const a=[...ls];[a[i],a[i+1]]=[a[i+1],a[i]];return a;});
                 if(editIdx===i) return(
                   <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:C.bgCard,borderRadius:"12px",padding:"11px 14px",border:"1px solid rgba(255,255,255,0.07)",borderLeft:`3px solid ${accent}`}}>
                     <input value={editVal} onChange={e=>setEditVal(e.target.value)} autoFocus style={{flex:1,background:"transparent",border:"none",outline:"none",fontSize:"0.92rem",color:"white"}}/>
@@ -624,7 +688,12 @@ function SettingsPanel({show,settings,locations,crops,user,syncing,onSave,onSign
                   </div>
                 );
                 return(
-                  <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:C.bgCard,borderRadius:"12px",padding:"11px 14px",border:"1px solid rgba(255,255,255,0.07)",borderLeft:`3px solid ${accent}`}}>
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:8,background:C.bgCard,borderRadius:"12px",padding:"11px 14px",border:"1px solid rgba(255,255,255,0.07)",borderLeft:`3px solid ${accent}`}}>
+                    {/* Reorder arrows */}
+                    <div style={{display:"flex",flexDirection:"row",gap:0,flexShrink:0}}>
+                      <button onClick={moveUp} disabled={i===0} style={{background:"none",border:"none",color:i===0?"rgba(255,255,255,0.1)":"rgba(232,245,233,0.5)",cursor:i===0?"default":"pointer",fontSize:"1rem",padding:"8px 10px",minWidth:"36px",minHeight:"36px",display:"flex",alignItems:"center",justifyContent:"center"}}>▲</button>
+                      <button onClick={moveDown} disabled={i===locs.length-1} style={{background:"none",border:"none",color:i===locs.length-1?"rgba(255,255,255,0.1)":"rgba(232,245,233,0.5)",cursor:i===locs.length-1?"default":"pointer",fontSize:"1rem",padding:"8px 10px",minWidth:"36px",minHeight:"36px",display:"flex",alignItems:"center",justifyContent:"center"}}>▼</button>
+                    </div>
                     <span style={{flex:1,fontSize:"0.92rem",color:"rgba(232,245,233,0.85)"}}>📍 {loc}</span>
                     {count>0&&<span style={{fontSize:"0.68rem",color:"rgba(232,245,233,0.3)"}}>{count} crop{count!==1?"s":""}</span>}
                     <button onClick={()=>{setEditIdx(i);setEditVal(loc);}} style={{background:"none",border:"none",color:"rgba(232,245,233,0.35)",fontSize:"0.78rem",fontWeight:600,cursor:"pointer"}}>Edit</button>
@@ -660,9 +729,9 @@ function SettingsPanel({show,settings,locations,crops,user,syncing,onSave,onSign
 }
 
 // ── Crop Form Panel (redesigned dark theme) ───────────────────
-const CROP_NAMES_LIST=["Tomato","Pepper","Cucumber","Lettuce","Spinach","Kale","Carrot","Onion","Garlic","Broccoli","Basil","Cilantro","Arugula","Squash","Zucchini","Eggplant","Radish","Beet","Corn","Celery","Scallions","Cannabis","Hemp"];
-const VARIETY_MAP={"Tomato":["San Marzano","Cherokee Purple","Brandywine","Sun Gold","Roma","Kathy's Red Barn"],"Kale":["Lacinato","Red Russian","Winterbor"],"Lettuce":["Black Seeded Simpson","Buttercrunch","Romaine","Oak Leaf"],"Pepper":["Jimmy Nardello","Shishito","Banana","Jalapeño"],"Basil":["Genovese","Thai","Purple","Lemon"],"Onion":["Clear Dawn","Walla Walla","Red Zeppelin","Candy"]};
-function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocation,onSave,onClose}) {
+
+
+function CropFormPanel({show,initial,locations,cropNames,varieties,containerSizes,onAddContainerSize,onRemoveCropName,onRemoveVariety,onRemoveContainerSize,defaultLocation,onSave,onClose}) {
   const isEdit=!!(initial&&initial.id);
   const blank={name:"",variety:"",location:defaultLocation||locations?.[0]||"",startType:null,seedDate:todayStr(),daysToMaturity:"",stage:"Seed",successionDays:"",inContainer:false,containerSize:"",notes:[],harvests:[],feedLog:[],feedSchedules:{},stageHistory:[],waterLog:[],archived:false};
   const [f,setF]=useState(blank);
@@ -670,6 +739,8 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
   const [showCropDrop,setShowCropDrop]=useState(false);
   const [showVarDrop,setShowVarDrop]=useState(false);
   const [saved,setSaved]=useState(false);
+  const [showColorPicker,setShowColorPicker]=useState(false);
+  const currentColor=f.color||(f.name?cropColor({name:f.name,color:null}):null)||"#4d7c0f";
 
   useEffect(()=>{
     if(show){
@@ -712,11 +783,12 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
     const now=todayStr();
     const crop={
       ...f,
-      name:titleCase(f.name),
-      variety:f.variety?titleCase(f.variety):"",
+      name:f.name.trim().split(" ").map(w=>w.match(/^[A-Z]+$/)?w:titleCase(w)).join(" "),
+      variety:f.variety?f.variety.trim().split(" ").map(w=>w.match(/^[IVXLCDM]+$/)?w:w.charAt(0).toUpperCase()+w.slice(1)).join(" "):"",
       successionDays:f.successionDays?Number(f.successionDays):null,
       daysToMaturity:f.daysToMaturity?Number(f.daysToMaturity):null,
       id:initial?.id||uid("crop"),
+      color:initial?.color||null,
       stageHistory:initial?.stageHistory||[{stage:f.stage||"Seed",date:f.seedDate||now}],
       waterLog:initial?.waterLog||[],
     };
@@ -749,8 +821,14 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
 
           {/* Preview card */}
           {hasPreview&&(
-            <div style={{background:`linear-gradient(135deg,${acc.from},${acc.to})`,borderRadius:"16px",padding:"16px 18px"}}>
-              <div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.14em",textTransform:"uppercase",color:"rgba(255,255,255,0.65)",marginBottom:4}}>{f.name||"Crop"}</div>
+            <div style={{background:`linear-gradient(135deg,${currentColor},${currentColor}cc)`,borderRadius:"16px",padding:"16px 18px"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                <div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.14em",textTransform:"uppercase",color:"rgba(255,255,255,0.65)"}}>{f.name||"Crop"}</div>
+                <button onClick={()=>setShowColorPicker(true)} style={{background:"rgba(0,0,0,0.2)",border:"none",borderRadius:"8px",padding:"4px 8px",cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+                  <div style={{width:10,height:10,borderRadius:"50%",background:currentColor,border:"1.5px solid rgba(255,255,255,0.6)"}}/>
+                  <span style={{fontSize:"0.65rem",color:"rgba(255,255,255,0.7)",fontWeight:600}}>Pick Color</span>
+                </button>
+              </div>
               <div style={{fontFamily:F.serif,fontStyle:"italic",fontSize:"1.5rem",color:"white",lineHeight:1.2}}>{f.variety||"Variety"}</div>
               {f.location&&<div style={{fontSize:"0.72rem",color:"rgba(255,255,255,0.55)",marginTop:6}}>📍 {f.location}</div>}
             </div>
@@ -765,7 +843,12 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
                 <input value={f.name} onChange={e=>{set("name",e.target.value);setShowCropDrop(true);}} onFocus={()=>setShowCropDrop(true)} onBlur={()=>setTimeout(()=>setShowCropDrop(false),160)} placeholder="e.g. Tomato" style={errors.name?errStyle:iStyle}/>
                 {showCropDrop&&filteredCrops.length>0&&(
                   <div style={{position:"absolute",top:"100%",left:0,right:0,background:"#1a2b1c",border:"1.5px solid rgba(255,255,255,0.1)",borderRadius:"10px",boxShadow:"0 8px 24px rgba(0,0,0,0.4)",zIndex:50,maxHeight:180,overflowY:"auto",marginTop:4}}>
-                    {filteredCrops.map(n=><div key={n} onMouseDown={()=>{set("name",n);setShowCropDrop(false);}} style={{padding:"10px 12px",cursor:"pointer",fontSize:"0.85rem",color:"rgba(232,245,233,0.85)",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>{n}</div>)}
+                    {filteredCrops.map(n=>(
+                      <div key={n} style={{display:"flex",alignItems:"center",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
+                        <div onMouseDown={()=>{set("name",n);setShowCropDrop(false);}} style={{flex:1,padding:"10px 12px",cursor:"pointer",fontSize:"0.85rem",color:"rgba(232,245,233,0.85)"}}>{n}</div>
+                        {!CROP_NAMES_LIST.includes(n)&&<button onMouseDown={e=>{e.preventDefault();onRemoveCropName&&onRemoveCropName(n);}} style={{background:"none",border:"none",color:"rgba(255,255,255,0.25)",fontSize:"1rem",cursor:"pointer",padding:"0 12px",lineHeight:1}}>×</button>}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -774,7 +857,15 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
                 <input value={f.variety} onChange={e=>{set("variety",e.target.value);setShowVarDrop(true);}} onFocus={()=>setShowVarDrop(true)} onBlur={()=>setTimeout(()=>setShowVarDrop(false),160)} placeholder="e.g. San Marzano" style={{...iStyle,fontFamily:F.serif,fontStyle:"italic"}}/>
                 {showVarDrop&&varSuggestions.filter(v=>!f.variety||v.toLowerCase().includes(f.variety.toLowerCase())).length>0&&(
                   <div style={{position:"absolute",top:"100%",left:0,right:0,background:"#1a2b1c",border:"1.5px solid rgba(255,255,255,0.1)",borderRadius:"10px",boxShadow:"0 8px 24px rgba(0,0,0,0.4)",zIndex:50,maxHeight:160,overflowY:"auto",marginTop:4}}>
-                    {varSuggestions.filter(v=>!f.variety||v.toLowerCase().includes(f.variety.toLowerCase())).map(v=><div key={v} onMouseDown={()=>{set("variety",v);setShowVarDrop(false);}} style={{padding:"10px 12px",cursor:"pointer",fontSize:"0.85rem",color:"rgba(232,245,233,0.85)",fontFamily:F.serif,fontStyle:"italic",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>{v}</div>)}
+                    {varSuggestions.filter(v=>!f.variety||v.toLowerCase().includes(f.variety.toLowerCase())).map(v=>{
+                      const isBuiltIn=(VARIETY_MAP[f.name]||[]).includes(v);
+                      return(
+                        <div key={v} style={{display:"flex",alignItems:"center",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
+                          <div onMouseDown={()=>{set("variety",v);setShowVarDrop(false);}} style={{flex:1,padding:"10px 12px",cursor:"pointer",fontSize:"0.85rem",color:"rgba(232,245,233,0.85)",fontFamily:F.serif,fontStyle:"italic"}}>{v}</div>
+                          {!isBuiltIn&&<button onMouseDown={e=>{e.preventDefault();onRemoveVariety&&onRemoveVariety(f.name,v);}} style={{background:"none",border:"none",color:"rgba(255,255,255,0.25)",fontSize:"1rem",cursor:"pointer",padding:"0 12px",lineHeight:1}}>×</button>}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -858,7 +949,19 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
                 </div>
                 {f.inContainer&&<div style={{marginTop:8}}>
                   {fLabel("Container size / type",true)}
-                  <input value={f.containerSize} onChange={e=>set("containerSize",e.target.value)} placeholder="e.g. 5 gallon fabric pot..." style={errors.cs?errStyle:iStyle}/>
+                  <div style={{position:"relative"}}>
+                    <input value={f.containerSize} onChange={e=>set("containerSize",e.target.value)} onBlur={()=>{const v=f.containerSize.trim();if(v&&onAddContainerSize)onAddContainerSize(v);}} placeholder="e.g. 5 gallon fabric pot..." style={errors.cs?errStyle:iStyle}/>
+                    {(containerSizes||[]).length>0&&(
+                      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
+                        {(containerSizes||[]).map(s=>(
+                          <div key={s} style={{display:"flex",alignItems:"center",background:f.containerSize===s?"rgba(59,130,246,0.2)":"rgba(255,255,255,0.06)",border:`1px solid ${f.containerSize===s?"rgba(59,130,246,0.5)":"rgba(255,255,255,0.1)"}`,borderRadius:"20px",overflow:"hidden"}}>
+                            <button onClick={()=>set("containerSize",s)} style={{background:"none",border:"none",padding:"4px 10px",fontSize:"0.75rem",color:f.containerSize===s?"#93c5fd":"rgba(232,245,233,0.5)",cursor:"pointer",fontWeight:500}}>{s}</button>
+                            <button onClick={e=>{e.stopPropagation();onRemoveContainerSize&&onRemoveContainerSize(s);}} style={{background:"none",border:"none",borderLeft:"1px solid rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.25)",fontSize:"0.8rem",cursor:"pointer",padding:"4px 8px",lineHeight:1}}>×</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>}
               </div>
 
@@ -882,6 +985,28 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,defaultLocati
 
         </div>
       </div>
+      {showColorPicker&&(
+        <div style={{position:"fixed",inset:0,zIndex:400}} onClick={()=>setShowColorPicker(false)}>
+          <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.6)"}}/>
+          <div onClick={e=>e.stopPropagation()} style={{position:"absolute",bottom:0,left:0,right:0,background:"#152016",borderRadius:"20px 20px 0 0",padding:"20px 20px max(28px,env(safe-area-inset-bottom))"}}>
+            <div style={{width:36,height:4,borderRadius:2,background:"rgba(255,255,255,0.2)",margin:"0 auto 16px"}}/>
+            <div style={{fontSize:"0.85rem",fontWeight:700,color:"white",marginBottom:4}}>Crop Color</div>
+            <div style={{fontSize:"0.75rem",color:"rgba(232,245,233,0.4)",marginBottom:16}}>{f.name||"Choose a color"}</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(8,1fr)",gap:10,marginBottom:16}}>
+              {COLOR_PALETTE.map(color=>(
+                <button key={color} onClick={()=>{set("color",color);setShowColorPicker(false);}} style={{width:"100%",aspectRatio:"1",borderRadius:"50%",background:color,border:currentColor===color?"3px solid white":"2px solid rgba(255,255,255,0.15)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {currentColor===color&&<svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                </button>
+              ))}
+            </div>
+            {f.color&&(
+              <button onClick={()=>{set("color",null);setShowColorPicker(false);}} style={{width:"100%",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"10px",padding:"10px",fontSize:"0.82rem",color:"rgba(232,245,233,0.5)",cursor:"pointer",fontWeight:600}}>
+                Reset to default {f.name?`(${f.name} color)`:"color"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -961,7 +1086,7 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
 
   if(!show||!crop) return null;
 
-  const acc=cropAccent(crop.name);
+  const acc=cropAccent(crop);
   const sc=STAGE_COLORS[crop.stage]||STAGE_COLORS.Seed;
   const schedules=crop.feedSchedules||{};
   const feedLog=crop.feedLog||[];
@@ -1573,7 +1698,9 @@ function StagePickerSheet({show,currentStage,onSelect,onClose}) {
 }
 
 // ── Location Action Sheet ──────────────────────────────────────
-function LocationActionSheet({show,location,crops,nutrients,onClose,onWaterAll,onFeedAll,onAddCrop}) {
+
+
+function LocationActionSheet({show,location,crops,nutrients,sort,onSortChange,onClose,onWaterAll,onFeedAll,onAddCrop}) {
   const [confirmWaterAll,setConfirmWaterAll]=useState(false);
   const [showFeedAll,setShowFeedAll]=useState(false);
   const [wateredAll,setWateredAll]=useState(false);
@@ -1595,6 +1722,18 @@ function LocationActionSheet({show,location,crops,nutrients,onClose,onWaterAll,o
           </div>
           <button onClick={onClose} style={{background:"rgba(255,255,255,0.08)",border:"none",borderRadius:"50%",width:30,height:30,color:"rgba(232,245,233,0.5)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1rem"}}>✕</button>
         </div>
+        {/* Sort pills */}
+        <div style={{padding:"2px 20px 10px"}}>
+          <div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"rgba(134,239,172,0.45)",marginBottom:8}}>Sort By</div>
+          <div style={{display:"flex",gap:6,overflowX:"auto",WebkitOverflowScrolling:"touch",paddingBottom:2}}>
+            {SORT_OPTIONS.map(opt=>(
+              <button key={opt.id} onClick={()=>{onSortChange&&onSortChange(opt.id);onClose();}} style={{background:sort===opt.id?"rgba(34,197,94,0.15)":"rgba(255,255,255,0.06)",border:`1px solid ${sort===opt.id?C.green:"rgba(255,255,255,0.1)"}`,borderRadius:"20px",padding:"6px 14px",fontSize:"0.78rem",fontWeight:600,color:sort===opt.id?C.green:"rgba(232,245,233,0.45)",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{height:"1px",background:"rgba(255,255,255,0.07)",margin:"0 20px 0"}}/>
         <div style={{display:"flex",gap:"10px",padding:"12px 20px 16px"}}>
           <button onClick={()=>setConfirmWaterAll(true)} disabled={wateredAll} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:"8px",padding:"16px 12px",borderRadius:"16px",border:"none",background:wateredAll?"rgba(34,197,94,0.12)":"rgba(59,130,246,0.15)",cursor:wateredAll?"default":"pointer"}}>
             <span style={{fontSize:"1.6rem"}}>💧</span>
@@ -1628,7 +1767,7 @@ function LocationActionSheet({show,location,crops,nutrients,onClose,onWaterAll,o
 
 // ── CropCard (used for orphaned crops on dashboard) ────────────
 function CropCard({crop,onClick,onWater}) {
-  const acc=cropAccent(crop.name);
+  const acc=cropAccent(crop);
   const sc=STAGE_COLORS[crop.stage]||STAGE_COLORS.Seed;
   const dInStage=daysSinceStage(crop);
   const lastWater=(crop.waterLog||[]).slice(-1)[0];
@@ -1762,13 +1901,26 @@ function LocationPanel({show,location,crops,nutrients,onClose,onCropTap,onAddCro
 }
 
 // ── Dashboard Location Card ────────────────────────────────────
-function LocCard({loc,crops,onLocClick,onCropClick}) {
+function LocCard({loc,crops,sort,onLocClick,onCropClick}) {
   const locCrops=crops.filter(c=>!c.archived&&c.location===loc);
   if(!locCrops.length) return null;
   const alerts=locCrops.filter(c=>{const s=c.feedSchedules||{};const fl=c.feedLog||[];return Object.entries(s).some(([n,d])=>{const l=[...fl].reverse().find(f=>f.nutrient===n);return l&&daysAgo(l.date)>=scheduleDays(d);});}).length;
+
+  const sorted=[...locCrops].sort((a,b)=>{
+    if(sort==="az") return (a.variety||a.name).localeCompare(b.variety||b.name);
+    if(sort==="oldest") return (a.seedDate||"").localeCompare(b.seedDate||"");
+    if(sort==="newest") return (b.seedDate||"").localeCompare(a.seedDate||"");
+    if(sort==="stage") return STAGE_ORDER.indexOf(a.stage)-STAGE_ORDER.indexOf(b.stage);
+    if(sort==="feed"){
+      const isOverdue=x=>{const fs=x.feedSchedules||{};const fl=x.feedLog||[];return Object.keys(fs).length>0&&Object.keys(fs).some(n=>{const d=fs[n];const l=[...fl].reverse().find(f=>f.nutrient===n);return !l||daysAgo(l.date)>=scheduleDays(d);});};
+      return isOverdue(b)-isOverdue(a);
+    }
+    return 0;
+  });
+
   return(
     <div style={{background:C.bgCard,borderRadius:"18px",overflow:"hidden",border:`1px solid ${alerts>0?"rgba(251,191,36,0.4)":"rgba(255,255,255,0.07)"}`,userSelect:"none"}}>
-      {/* Location header - taps to action sheet */}
+      {/* Location header */}
       <div onClick={onLocClick} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px 10px",cursor:"pointer"}}>
         <div>
           <div style={{fontSize:"1rem",fontWeight:700,color:"white",lineHeight:1.2}}>{loc}</div>
@@ -1779,17 +1931,18 @@ function LocCard({loc,crops,onLocClick,onCropClick}) {
           <span style={{color:"rgba(255,255,255,0.25)",fontSize:"0.85rem"}}>›</span>
         </div>
       </div>
+      {/* Sort pills removed - sort controlled via action sheet */}
       <div style={{height:"1px",background:"rgba(255,255,255,0.06)",marginLeft:"16px"}}/>
       {/* Crop rows */}
       <div style={{display:"flex",flexDirection:"column"}}>
-        {locCrops.map((c,i)=>{
-          const acc=cropAccent(c.name);
+        {sorted.map((c,i)=>{
+          const acc=cropAccent(c);
           const sc=STAGE_COLORS[c.stage]||STAGE_COLORS.Seed;
           const dInStage=daysSinceStage(c);
           const lastWater=(c.waterLog||[]).slice(-1)[0];
           const daysNoWater=lastWater?daysAgo(lastWater.date):null;
           const waterAlert=daysNoWater!==null&&daysNoWater>=2;
-          const isLast=i===locCrops.length-1;
+          const isLast=i===sorted.length-1;
           return(
             <div key={c.id} onClick={()=>onCropClick(c)}
               style={{display:"flex",alignItems:"center",gap:"12px",padding:"11px 16px",cursor:"pointer",borderBottom:isLast?"none":"1px solid rgba(255,255,255,0.04)"}}>
@@ -1799,7 +1952,6 @@ function LocCard({loc,crops,onLocClick,onCropClick}) {
                 <div style={{fontFamily:F.serif,fontStyle:"italic",fontSize:"0.95rem",color:"rgba(255,255,255,0.9)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",lineHeight:1.2}}>{c.variety||c.name}</div>
               </div>
               <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:"3px",flexShrink:0}}>
-                {/* Stage pill */}
                 <div style={{background:`${sc.dot}22`,border:`1px solid ${sc.dot}55`,borderRadius:"20px",padding:"3px 8px",display:"flex",alignItems:"center",gap:"4px"}}>
                   <div style={{width:"6px",height:"6px",borderRadius:"50%",background:sc.dot,flexShrink:0}}/>
                   <span style={{fontSize:"0.72rem",fontWeight:600,color:sc.dot}}>{c.stage}</span>
@@ -1936,7 +2088,7 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFe
 
             {/* Succession planting reminders */}
             {succTasks.filter(t=>!dismissedSucc.includes(t.id)).map(t=>{
-              const acc=cropAccent(t.crop.name);
+              const acc=cropAccent(t.crop);
               const isOverdue=t.urgency==="overdue";
               return(
                 <div key={t.id} style={{background:isOverdue?"rgba(239,68,68,0.07)":"rgba(34,197,94,0.06)",border:`1px solid ${isOverdue?"rgba(239,68,68,0.25)":"rgba(134,239,172,0.2)"}`,borderRadius:"14px",padding:"12px 14px",borderLeft:`3px solid ${isOverdue?"#ef4444":C.green}`}}>
@@ -1976,8 +2128,6 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFe
                 </div>
               );
             })}
-
-            {/* Completed */}
             {done.length>0&&(
               <div>
                 <button onClick={()=>setShowDone(v=>!v)} style={{background:"none",border:"none",cursor:"pointer",fontSize:"0.78rem",fontWeight:700,color:"rgba(232,245,233,0.3)",padding:"4px 0",display:"flex",alignItems:"center",gap:6}}>
@@ -2014,7 +2164,7 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFe
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:7}}>
                     {group.map(t=>{
-                      const acc=cropAccent(t.crop.name);
+                      const acc=cropAccent(t.crop);
                       const isFeed=t.type==="feed";
                       const fl=t.crop.feedLog||[];
                       const lastFed=fl.filter(f=>f.nutrient===t.nutrient).pop();
@@ -2226,7 +2376,7 @@ function ReportPanel({show,crops,onRestore,onDeleteCrop,onSettings,onClose}) {
   const harvestByCrop=active.concat(archived).reduce((acc,c)=>{
     if(!(c.harvests||[]).length) return acc;
     const key=`${c.name}::${c.variety}`;
-    const acc2=cropAccent(c.name);
+    const acc2=cropAccent(c);
     if(!acc[key]) acc[key]={name:c.name,variety:c.variety,count:0,total:0,unit:"g",accent:acc2};
     (c.harvests||[]).forEach(h=>{if(h.amount){acc[key].count++;acc[key].total+=Number(h.amount);}});
     return acc;
@@ -2235,7 +2385,7 @@ function ReportPanel({show,crops,onRestore,onDeleteCrop,onSettings,onClose}) {
 
   // Feeding summary
   const feedingRows=active.filter(c=>Object.keys(c.feedSchedules||{}).length>0).map(c=>{
-    const acc=cropAccent(c.name);
+    const acc=cropAccent(c);
     const schedules=c.feedSchedules||{};
     const fl=c.feedLog||[];
     const overdue=Object.entries(schedules).some(([n,d])=>{const l=[...fl].reverse().find(f=>f.nutrient===n);return l&&daysAgo(l.date)>=scheduleDays(d);});
@@ -2245,7 +2395,7 @@ function ReportPanel({show,crops,onRestore,onDeleteCrop,onSettings,onClose}) {
 
   // Watering summary
   const wateringRows=active.map(c=>{
-    const acc=cropAccent(c.name);
+    const acc=cropAccent(c);
     const wl=(c.waterLog||[]).sort((a,b)=>new Date(b.date)-new Date(a.date));
     const lastDays=wl.length?daysAgo(wl[0].date):null;
     const recent=wl.slice(0,3).map(w=>fmtDate(w.date));
@@ -2361,7 +2511,7 @@ function ReportPanel({show,crops,onRestore,onDeleteCrop,onSettings,onClose}) {
               const bDate=b.stageHistory?.[b.stageHistory.length-1]?.date||b.seedDate||"";
               return bDate.localeCompare(aDate);
             }).map(c=>{
-              const acc=cropAccent(c.name);
+              const acc=cropAccent(c);
               const isLost=c.stage==="Lost";
               const lastStageDate=c.stageHistory?.[c.stageHistory.length-1]?.date;
               const ht=(()=>{const w=(c.harvests||[]).filter(h=>h.amount&&h.unit);if(!w.length)return null;const t={};w.forEach(h=>{t[h.unit]=(t[h.unit]||0)+Number(h.amount);});const top=Object.entries(t).sort((a,b)=>b[1]-a[1])[0];return`${Math.round(top[1]*100)/100} ${top[0]}`;})();
@@ -2394,7 +2544,7 @@ function ReportPanel({show,crops,onRestore,onDeleteCrop,onSettings,onClose}) {
         {sec==="harvests"&&(
           <div style={{display:"flex",flexDirection:"column",gap:8,paddingBottom:20}}>
             {harvestRows.length===0&&<div style={{textAlign:"center",padding:"2rem 0",color:"rgba(232,245,233,0.2)",fontStyle:"italic"}}>No harvests logged yet.</div>}
-            {crops.flatMap(c=>(c.harvests||[]).map(h=>({...h,cropName:c.name,variety:c.variety,acc:cropAccent(c.name)}))).sort((a,b)=>new Date(b.date)-new Date(a.date)).map((h,i)=>(
+            {crops.flatMap(c=>(c.harvests||[]).map(h=>({...h,cropName:c.name,variety:c.variety,acc:cropAccent(c)}))).sort((a,b)=>new Date(b.date)-new Date(a.date)).map((h,i)=>(
               <div key={i} style={{display:"flex",alignItems:"flex-start",gap:10,background:C.bgCard,borderRadius:"14px",padding:"12px 14px",border:"1px solid rgba(255,255,255,0.06)",borderLeft:`3px solid ${h.acc.from}`}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:"0.58rem",fontWeight:700,letterSpacing:"0.1em",color:"rgba(255,255,255,0.3)",textTransform:"uppercase"}}>{h.cropName}</div>
@@ -2568,6 +2718,7 @@ function App() {
   const [nutrients,setNutrients] = useState(DEFAULT_NUTRIENTS);
   const [cropNames,setCropNames] = useState(DEFAULT_CROPS);
   const [varieties,setVarieties] = useState({});
+  const [containerSizes,setContainerSizes] = useState([]);
 
   // Load from Supabase when user logs in - always replaces state entirely
   useEffect(()=>{
@@ -2599,9 +2750,10 @@ function App() {
           }));
         }
         if(row.todos)      setTodos(row.todos);
-        if(row.nutrients)  setNutrients(row.nutrients);
-        if(row.crop_names) setCropNames(row.crop_names);
-        if(row.varieties)  setVarieties(row.varieties);
+        if(row.nutrients)        setNutrients(row.nutrients);
+        if(row.crop_names)       setCropNames(row.crop_names);
+        if(row.varieties)        setVarieties(row.varieties);
+        if(row.container_sizes)  setContainerSizes(row.container_sizes);
       }
       // New user - state stays at empty defaults, wizard will run
       setDbLoaded(true);
@@ -2625,7 +2777,7 @@ function App() {
 
   useEffect(()=>{
     if(!dbLoadedRef.current||!user||!settings) return;
-    scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties});
+    scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties,container_sizes:containerSizes});
   },[settings,locations,crops,todos,nutrients,cropNames,varieties]);
 
   // ── Weather ─────────────────────────────────────────────────
@@ -2690,6 +2842,7 @@ function App() {
   const navigate = (v) => { setPrevView(view); setView(v); };
   const [selLoc,setSelLoc]         = useState(null);
   const [selLocSheet,setSelLocSheet] = useState(null);
+  const [locSorts,setLocSorts]       = useState({}); // {locationName: sortId}
   const [selCrop,setSelCrop]   = useState(null);
   const [editCrop,setEditCrop] = useState(null);
 
@@ -2731,7 +2884,7 @@ function App() {
     // Track variety under this crop name
     if(crop.name&&crop.variety){
       const cn=titleCase(crop.name);
-      const tv=titleCase(crop.variety);
+      const tv=crop.variety.trim();
       setVarieties(prev=>{
         const existing=prev[cn]||[];
         if(existing.map(v=>v.toLowerCase()).includes(tv.toLowerCase())) return prev;
@@ -2939,7 +3092,7 @@ function App() {
               <div style={{fontSize:"0.95rem",marginBottom:"6px"}}>No crops logged yet.</div>
               <div style={{fontSize:"0.78rem",opacity:0.7}}>Tap + Add Crop to get started.</div>
             </div>
-          ):activeLocs.map(loc=><LocCard key={loc} loc={loc} crops={crops} onLocClick={()=>setSelLocSheet(loc)} onCropClick={c=>{setSelCrop(c);setSelLoc(loc);setView("crop");}}/>)}
+          ):activeLocs.map(loc=><LocCard key={loc} loc={loc} crops={crops} sort={locSorts[loc]||"az"} onLocClick={()=>setSelLocSheet(loc)} onCropClick={c=>{setSelCrop(c);setSelLoc(loc);setView("crop");}}/>)}
           {orphanedCrops.length>0&&(
             <div style={{background:"rgba(255,255,255,0.05)",borderRadius:"14px",padding:"12px 14px",border:"1px solid rgba(255,165,0,0.3)"}}>
               <div style={{fontSize:"0.7rem",fontWeight:700,color:"#fbbf24",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:"8px"}}>⚠ Location removed - these crops need attention</div>
@@ -2977,6 +3130,8 @@ function App() {
       </div>
       {/* Location Action Sheet */}
       <LocationActionSheet show={!!selLocSheet} location={selLocSheet} crops={crops} nutrients={nutrients}
+        sort={locSorts[selLocSheet]||"az"}
+        onSortChange={s=>setLocSorts(prev=>({...prev,[selLocSheet]:s}))}
         onClose={()=>setSelLocSheet(null)}
         onWaterAll={waterAll}
         onFeedAll={feedAll}
@@ -3001,7 +3156,7 @@ function App() {
         onUpdateSchedule={updateSchedule} onDeleteSchedule={deleteSchedule}
         onTransplant={transplantCrop} onWater={waterCrop}/>
 
-      <CropFormPanel show={view==="addCrop"||view==="editCrop"} initial={view==="editCrop"?editCrop:(view==="addCrop"&&editCrop?.id===null?editCrop:null)} locations={locations} cropNames={cropNames} varieties={varieties} defaultLocation={view==="addCrop"&&!editCrop?selLoc:null}
+      <CropFormPanel show={view==="addCrop"||view==="editCrop"} initial={view==="editCrop"?editCrop:(view==="addCrop"&&editCrop?.id===null?editCrop:null)} locations={locations} cropNames={cropNames} varieties={varieties} containerSizes={containerSizes} onAddContainerSize={s=>setContainerSizes(cs=>[...new Set([...cs,s])])} onRemoveCropName={n=>setCropNames(cs=>cs.filter(x=>x!==n))} onRemoveVariety={(name,v)=>setVarieties(vs=>({...vs,[name]:(vs[name]||[]).filter(x=>x!==v)}))} onRemoveContainerSize={s=>setContainerSizes(cs=>cs.filter(x=>x!==s))} defaultLocation={view==="addCrop"&&!editCrop?selLoc:null}
         onSave={saveCrop} onClose={()=>{setEditCrop(null);setView(view==="editCrop"?"crop":"dashboard");}}/>
 
       <TodoPanel show={view==="todo"} crops={crops} todos={todos} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} onLogFeed={logFeed} onCropTap={c=>{setSelCrop(c);setView("crop");}} onSuccessionSow={c=>{setEditCrop({...c,id:null,seedDate:todayStr(),stageHistory:[],waterLog:[],feedLog:[],harvests:[],notes:[],feedSchedules:{}});setView("addCrop");}} onSettings={()=>setView("settings")} onClose={()=>setView("dashboard")}/>
