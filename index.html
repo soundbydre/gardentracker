@@ -96,34 +96,30 @@ async function dbLoad(userId) {
   const { data, error } = await sb.from("garden_data").select("*").eq("user_id", userId).single();
   if (error && error.code !== "PGRST116") { console.error("dbLoad error", error); return null; }
   if(!data) return null;
-  // Repair bad capitalization from old formatter
   const fixStr=v=>{
     if(!v) return v;
-    let r=v.replace(/['\u2019]\s*([A-Z])/g,(_,c)=>_[0]+c.toLowerCase());
-    r=r.replace(/\b(I{1,3}|IV|VI{0,3}|IX|XI{0,3}|XIV|XV|XVI)\b/gi,m=>m.toUpperCase());
-    r=r.replace(/\b([IVX]) ([IVX])\b/g,"$1$2");
-    return r;
+    // Fix both straight ' (U+0027) and curly ' (U+2019) apostrophes followed by capital
+    return v.replace(/['\u2019]\s*([A-Z])/g,(_,c)=>_[0]+c.toLowerCase());
   };
+  let repaired=false;
   if(data.crops){
     const fixed=data.crops.map(c=>({...c,variety:fixStr(c.variety),name:fixStr(c.name)}));
-    const needsRepair=fixed.some((c,i)=>c.variety!==data.crops[i].variety||c.name!==data.crops[i].name);
-    if(needsRepair){
-      data.crops=fixed;
-      sb.from("garden_data").upsert({user_id:userId,...data,updated_at:new Date().toISOString()},{onConflict:"user_id"});
+    if(fixed.some((c,i)=>c.variety!==data.crops[i].variety||c.name!==data.crops[i].name)){
+      data.crops=fixed;repaired=true;
     }
   }
   if(data.varieties){
-    const fixedVars={};
-    let varsNeedRepair=false;
+    const fixedVars={};let varsChanged=false;
     Object.entries(data.varieties).forEach(([name,arr])=>{
       const fixedArr=(arr||[]).map(v=>fixStr(v));
       fixedVars[fixStr(name)]=fixedArr;
-      if(fixStr(name)!==name||fixedArr.some((v,i)=>v!==arr[i])) varsNeedRepair=true;
+      if(fixStr(name)!==name||fixedArr.some((v,i)=>v!==arr[i])) varsChanged=true;
     });
-    if(varsNeedRepair){
-      data.varieties=fixedVars;
-      sb.from("garden_data").upsert({user_id:userId,...data,updated_at:new Date().toISOString()},{onConflict:"user_id"});
-    }
+    if(varsChanged){data.varieties=fixedVars;repaired=true;}
+  }
+  if(repaired){
+    // Patch only crops+varieties — never touch locations or other fields
+    sb.from("garden_data").update({crops:data.crops,varieties:data.varieties,updated_at:new Date().toISOString()}).eq("user_id",userId);
   }
   return data;
 }
@@ -197,8 +193,8 @@ const WMO_CODES = {
   1:  {label:"Mainly clear",          emoji:"🌤", desc:"Mostly sunny with a few clouds"},
   2:  {label:"Partly cloudy",         emoji:"⛅", desc:"Mix of sun and clouds"},
   3:  {label:"Overcast",              emoji:"☁️", desc:"Cloud-covered skies"},
-  45: {label:"Fog",                   emoji:"🌫", desc:"Foggy conditions"},
-  48: {label:"Depositing rime fog",   emoji:"🌫", desc:"Freezing fog"},
+  45: {label:"Fog",                   emoji:"🌁", desc:"Foggy conditions"},
+  48: {label:"Freezing fog",          emoji:"🌁", desc:"Freezing fog"},
   51: {label:"Light drizzle",         emoji:"🌦", desc:"Light drizzle"},
   53: {label:"Moderate drizzle",      emoji:"🌦", desc:"Moderate drizzle"},
   55: {label:"Dense drizzle",         emoji:"🌧", desc:"Heavy drizzle"},
@@ -238,7 +234,7 @@ async function geocodeZip(zip) {
 // Fetch weather from Open-Meteo (current conditions + 7-day forecast)
 async function fetchWeather(lat, lon) {
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,relative_humidity_2m,dew_point_2m,weather_code,precipitation,wind_speed_10m,wind_gusts_10m,uv_index&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,relative_humidity_2m_mean,precipitation_probability_max,sunrise,sunset&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&forecast_days=7&timezone=auto`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,relative_humidity_2m,dew_point_2m,weather_code,precipitation,wind_speed_10m,wind_gusts_10m,uv_index&hourly=temperature_2m,weather_code,precipitation_probability,relative_humidity_2m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,relative_humidity_2m_mean,precipitation_probability_max,sunrise,sunset&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&forecast_days=7&timezone=auto`;
     const r = await fetch(url); if (!r.ok) return null;
     return await r.json();
   } catch { return null; }
@@ -501,11 +497,12 @@ function Wizard({onComplete}) {
   const [zip,setZip]=useState("");
   const [zone,setZone]=useState("");
   const [locations,setLocations]=useState([]);
+  const [locMeta,setLocMeta]=useState({});
   const [locInput,setLocInput]=useState("");
   const [zipError,setZipError]=useState("");
   const validZip=zip.trim().length===5&&!isNaN(Number(zip.trim()));
   const wi={width:"100%",padding:"14px 16px",borderRadius:"12px",border:"1.5px solid rgba(255,255,255,0.15)",background:"rgba(255,255,255,0.08)",color:"white",fontSize:"1rem",outline:"none",boxSizing:"border-box"};
-  const addLoc=()=>{const v=locInput.trim();if(v&&!locations.includes(v))setLocations(l=>[...l,v]);setLocInput("");};
+  const addLoc=()=>{const v=locInput.trim();if(v&&!locations.includes(v)){setLocations(l=>[...l,v]);setLocMeta(m=>({...m,[v]:{outdoor:true}}));}setLocInput("");};
 
   const STEPS=[
     <div key={0} style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",padding:"32px 28px",textAlign:"center",gap:20}}>
@@ -553,9 +550,16 @@ function Wizard({onComplete}) {
         <button onClick={addLoc} style={{background:C.green,color:"white",border:"none",borderRadius:"10px",padding:"14px 18px",fontWeight:700,fontSize:"0.9rem",cursor:"pointer",flexShrink:0}}>Add</button>
       </div>
       {locations.map((l,i)=>(
-        <div key={l} style={{display:"flex",alignItems:"center",background:"rgba(255,255,255,0.08)",borderRadius:"10px",padding:"12px 14px"}}>
-          <span style={{flex:1,color:"white",fontSize:"0.95rem"}}>📍 {l}</span>
-          <button onClick={()=>setLocations(ls=>ls.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.35)",fontSize:"1.2rem",cursor:"pointer"}}>x</button>
+        <div key={l} style={{background:"rgba(255,255,255,0.08)",borderRadius:"12px",overflow:"hidden"}}>
+          <div style={{display:"flex",alignItems:"center",padding:"12px 14px",gap:10}}>
+            <span style={{flex:1,color:"white",fontSize:"0.95rem"}}>📍 {l}</span>
+            <button onClick={()=>setLocations(ls=>ls.filter((_,j)=>j!==i))} style={{background:"transparent",border:"none",color:"rgba(255,255,255,0.35)",fontSize:"1.2rem",cursor:"pointer"}}>x</button>
+          </div>
+          <div style={{borderTop:"1px solid rgba(255,255,255,0.07)",display:"flex",gap:8,padding:"10px 14px"}}>
+            <div style={{fontSize:"0.72rem",color:"rgba(255,255,255,0.45)",alignSelf:"center",flex:1}}>Location type:</div>
+            <button onClick={()=>setLocMeta(m=>({...m,[l]:{...m[l],outdoor:true}}))} style={{background:locMeta[l]?.outdoor?"rgba(34,197,94,0.2)":"rgba(255,255,255,0.06)",border:`1px solid ${locMeta[l]?.outdoor?C.green:"rgba(255,255,255,0.1)"}`,borderRadius:"8px",padding:"6px 14px",fontSize:"0.78rem",fontWeight:700,color:locMeta[l]?.outdoor?C.green:"rgba(255,255,255,0.4)",cursor:"pointer"}}>🌿 Outdoor</button>
+            <button onClick={()=>setLocMeta(m=>({...m,[l]:{...m[l],outdoor:false}}))} style={{background:locMeta[l]?.outdoor===false?"rgba(59,130,246,0.2)":"rgba(255,255,255,0.06)",border:`1px solid ${locMeta[l]?.outdoor===false?"#3b82f6":"rgba(255,255,255,0.1)"}`,borderRadius:"8px",padding:"6px 14px",fontSize:"0.78rem",fontWeight:700,color:locMeta[l]?.outdoor===false?"#60a5fa":"rgba(255,255,255,0.4)",cursor:"pointer"}}>🏠 Indoor</button>
+          </div>
         </div>
       ))}
       <button onClick={()=>setStep(4)} disabled={locations.length===0} style={{background:C.green,color:"white",border:"none",borderRadius:"14px",padding:"16px",fontSize:"1rem",fontWeight:700,cursor:"pointer",opacity:locations.length?1:0.4,marginTop:4}}>Continue</button>
@@ -565,8 +569,8 @@ function Wizard({onComplete}) {
       <div style={{fontFamily:F.serif,fontSize:"1.6rem",color:"white",fontWeight:700}}>Ready to log your first crop?</div>
       <div style={{fontSize:"0.9rem",color:"rgba(255,255,255,0.45)"}}>You can always do this from the dashboard.</div>
       <div style={{display:"flex",flexDirection:"column",gap:10,width:"100%",maxWidth:320}}>
-        <button onClick={()=>onComplete({gardenName:gardenName.trim(),zone,zip:zip.trim(),locations},true)} style={{background:C.green,color:"white",border:"none",borderRadius:"14px",padding:"16px",fontSize:"1rem",fontWeight:700,cursor:"pointer"}}>Yes, add a crop now</button>
-        <button onClick={()=>onComplete({gardenName:gardenName.trim(),zone,zip:zip.trim(),locations},false)} style={{background:"transparent",border:"1.5px solid rgba(255,255,255,0.2)",color:"rgba(255,255,255,0.65)",borderRadius:"14px",padding:"16px",fontSize:"1rem",fontWeight:600,cursor:"pointer"}}>Go to dashboard</button>
+        <button onClick={()=>onComplete({gardenName:gardenName.trim(),zone,zip:zip.trim(),locations,locMeta},true)} style={{background:C.green,color:"white",border:"none",borderRadius:"14px",padding:"16px",fontSize:"1rem",fontWeight:700,cursor:"pointer"}}>Yes, add a crop now</button>
+        <button onClick={()=>onComplete({gardenName:gardenName.trim(),zone,zip:zip.trim(),locations,locMeta},false)} style={{background:"transparent",border:"1.5px solid rgba(255,255,255,0.2)",color:"rgba(255,255,255,0.65)",borderRadius:"14px",padding:"16px",fontSize:"1rem",fontWeight:600,cursor:"pointer"}}>Go to dashboard</button>
       </div>
     </div>,
   ];
@@ -592,11 +596,12 @@ function Wizard({onComplete}) {
 
 
 
-function SettingsPanel({show,settings,locations,crops,user,syncing,onSave,onSignOut,onClose}) {
+function SettingsPanel({show,settings,locations,locationMeta,crops,user,syncing,onSave,onSignOut,onClose}) {
   const [name,setName]=useState(settings?.gardenName||"");
   const [zip,setZip]=useState(settings?.zip||"");
   const [zone,setZone]=useState(settings?.zone||"");
   const [locs,setLocs]=useState(locations||[]);
+  const [locMeta,setLocMeta]=useState(locationMeta||{});
   const [newLoc,setNewLoc]=useState("");
   const [editIdx,setEditIdx]=useState(null);
   const [editVal,setEditVal]=useState("");
@@ -609,6 +614,7 @@ function SettingsPanel({show,settings,locations,crops,user,syncing,onSave,onSign
       setZip(settings?.zip||"");
       setZone(settings?.zone||"");
       setLocs(locations||[]);
+      setLocMeta(locationMeta||{});
       setSaved(false);setEditIdx(null);setNewLoc("");
     }
   },[show]);
@@ -681,20 +687,29 @@ function SettingsPanel({show,settings,locations,crops,user,syncing,onSave,onSign
                 const moveUp=()=>setLocs(ls=>{const a=[...ls];[a[i-1],a[i]]=[a[i],a[i-1]];return a;});
                 const moveDown=()=>setLocs(ls=>{const a=[...ls];[a[i],a[i+1]]=[a[i+1],a[i]];return a;});
                 if(editIdx===i) return(
-                  <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:C.bgCard,borderRadius:"12px",padding:"11px 14px",border:"1px solid rgba(255,255,255,0.07)",borderLeft:`3px solid ${accent}`}}>
-                    <input value={editVal} onChange={e=>setEditVal(e.target.value)} autoFocus style={{flex:1,background:"transparent",border:"none",outline:"none",fontSize:"0.92rem",color:"white"}}/>
-                    <button onClick={()=>{if(editVal.trim())setLocs(ls=>ls.map((x,j)=>j===i?editVal.trim():x));setEditIdx(null);}} style={{background:C.green,border:"none",borderRadius:"7px",padding:"5px 10px",color:"white",fontWeight:700,cursor:"pointer",fontSize:"0.85rem"}}>Save</button>
-                    <button onClick={()=>setEditIdx(null)} style={{background:"none",border:"none",color:"rgba(232,245,233,0.3)",cursor:"pointer",fontSize:"1rem"}}>X</button>
+                  <div key={i} style={{display:"flex",flexDirection:"column",gap:8,background:C.bgCard,borderRadius:"12px",padding:"11px 14px",border:"1px solid rgba(255,255,255,0.07)",borderLeft:`3px solid ${accent}`}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <input value={editVal} onChange={e=>setEditVal(e.target.value)} autoFocus style={{flex:1,background:"transparent",border:"none",outline:"none",fontSize:"0.92rem",color:"white"}}/>
+                      <button onClick={()=>{if(editVal.trim())setLocs(ls=>ls.map((x,j)=>j===i?editVal.trim():x));setEditIdx(null);}} style={{background:C.green,border:"none",borderRadius:"7px",padding:"5px 10px",color:"white",fontWeight:700,cursor:"pointer",fontSize:"0.85rem"}}>Save</button>
+                      <button onClick={()=>setEditIdx(null)} style={{background:"none",border:"none",color:"rgba(232,245,233,0.3)",cursor:"pointer",fontSize:"1rem"}}>X</button>
+                    </div>
+                    {/* Outdoor toggle — only in edit mode */}
+                    <div style={{display:"flex",gap:8,paddingTop:4,borderTop:"1px solid rgba(255,255,255,0.07)"}}>
+                      <span style={{fontSize:"0.72rem",color:"rgba(232,245,233,0.4)",alignSelf:"center",flex:1}}>Location type:</span>
+                      <button onClick={()=>setLocMeta(m=>({...m,[loc]:{...m[loc],outdoor:true}}))} style={{background:locMeta[loc]?.outdoor?"rgba(34,197,94,0.2)":"rgba(255,255,255,0.06)",border:`1px solid ${locMeta[loc]?.outdoor?C.green:"rgba(255,255,255,0.1)"}`,borderRadius:"8px",padding:"6px 14px",fontSize:"0.75rem",fontWeight:700,color:locMeta[loc]?.outdoor?C.green:"rgba(232,245,233,0.35)",cursor:"pointer"}}>🌿 Outdoor</button>
+                      <button onClick={()=>setLocMeta(m=>({...m,[loc]:{...m[loc],outdoor:false}}))} style={{background:locMeta[loc]?.outdoor===false?"rgba(59,130,246,0.2)":"rgba(255,255,255,0.06)",border:`1px solid ${locMeta[loc]?.outdoor===false?"#3b82f6":"rgba(255,255,255,0.1)"}`,borderRadius:"8px",padding:"6px 14px",fontSize:"0.75rem",fontWeight:700,color:locMeta[loc]?.outdoor===false?"#60a5fa":"rgba(232,245,233,0.35)",cursor:"pointer"}}>🏠 Indoor</button>
+                    </div>
                   </div>
                 );
                 return(
                   <div key={i} style={{display:"flex",alignItems:"center",gap:8,background:C.bgCard,borderRadius:"12px",padding:"11px 14px",border:"1px solid rgba(255,255,255,0.07)",borderLeft:`3px solid ${accent}`}}>
-                    {/* Reorder arrows */}
                     <div style={{display:"flex",flexDirection:"row",gap:0,flexShrink:0}}>
                       <button onClick={moveUp} disabled={i===0} style={{background:"none",border:"none",color:i===0?"rgba(255,255,255,0.1)":"rgba(232,245,233,0.5)",cursor:i===0?"default":"pointer",fontSize:"1rem",padding:"8px 10px",minWidth:"36px",minHeight:"36px",display:"flex",alignItems:"center",justifyContent:"center"}}>▲</button>
                       <button onClick={moveDown} disabled={i===locs.length-1} style={{background:"none",border:"none",color:i===locs.length-1?"rgba(255,255,255,0.1)":"rgba(232,245,233,0.5)",cursor:i===locs.length-1?"default":"pointer",fontSize:"1rem",padding:"8px 10px",minWidth:"36px",minHeight:"36px",display:"flex",alignItems:"center",justifyContent:"center"}}>▼</button>
                     </div>
                     <span style={{flex:1,fontSize:"0.92rem",color:"rgba(232,245,233,0.85)"}}>📍 {loc}</span>
+                    {locMeta[loc]?.outdoor===true&&<span style={{fontSize:"0.62rem",fontWeight:700,color:C.green,background:"rgba(34,197,94,0.1)",border:"1px solid rgba(34,197,94,0.2)",borderRadius:"6px",padding:"2px 6px"}}>OUT</span>}
+                    {locMeta[loc]?.outdoor===false&&<span style={{fontSize:"0.62rem",fontWeight:700,color:"#60a5fa",background:"rgba(59,130,246,0.1)",border:"1px solid rgba(59,130,246,0.2)",borderRadius:"6px",padding:"2px 6px"}}>IN</span>}
                     {count>0&&<span style={{fontSize:"0.68rem",color:"rgba(232,245,233,0.3)"}}>{count} crop{count!==1?"s":""}</span>}
                     <button onClick={()=>{setEditIdx(i);setEditVal(loc);}} style={{background:"none",border:"none",color:"rgba(232,245,233,0.35)",fontSize:"0.78rem",fontWeight:600,cursor:"pointer"}}>Edit</button>
                     {count>0?(
@@ -712,7 +727,7 @@ function SettingsPanel({show,settings,locations,crops,user,syncing,onSave,onSign
             </div>
           </div>
 
-          <button onClick={()=>{if(!validZip)return;setSaved(true);onSave({gardenName:name.trim()||"My Garden",zone,zip},locs);setTimeout(()=>setSaved(false),1500);}} disabled={!validZip} style={{background:saved?"rgba(34,197,94,0.2)":!validZip?"rgba(255,255,255,0.06)":C.green,border:saved?`1px solid ${C.green}`:"none",borderRadius:"14px",padding:"16px",fontSize:"0.95rem",fontWeight:700,color:saved?C.green:!validZip?"rgba(232,245,233,0.25)":"white",cursor:validZip?"pointer":"not-allowed"}}>
+          <button onClick={()=>{if(!validZip)return;setSaved(true);onSave({gardenName:name.trim()||"My Garden",zone,zip},locs,locMeta);setTimeout(()=>setSaved(false),1500);}} disabled={!validZip} style={{background:saved?"rgba(34,197,94,0.2)":!validZip?"rgba(255,255,255,0.06)":C.green,border:saved?`1px solid ${C.green}`:"none",borderRadius:"14px",padding:"16px",fontSize:"0.95rem",fontWeight:700,color:saved?C.green:!validZip?"rgba(232,245,233,0.25)":"white",cursor:validZip?"pointer":"not-allowed"}}>
             {saved?"Saved!":"Save Settings"}
           </button>
 
@@ -1035,7 +1050,7 @@ function DarkSheet({show,onClose,title,children}) {
   );
 }
 
-function DarkConfirmSheet({show,onClose,title,message,confirmLabel,danger,onConfirm}) {
+function DarkConfirmSheet({show,onClose,title,message,confirmLabel,danger,onConfirm,extraContent}) {
   if(!show) return null;
   return(
     <DarkSheet show={show} onClose={onClose}>
@@ -1043,6 +1058,7 @@ function DarkConfirmSheet({show,onClose,title,message,confirmLabel,danger,onConf
         <div>
           <div style={{fontSize:"1.05rem",fontWeight:700,color:"white",marginBottom:8}}>{title}</div>
           <div style={{fontSize:"0.88rem",color:"rgba(232,245,233,0.5)",lineHeight:1.6}}>{message}</div>
+          {extraContent&&<div style={{marginTop:12}}>{extraContent}</div>}
         </div>
         <div style={{display:"flex",gap:10}}>
           <button onClick={onClose} style={{flex:1,padding:"14px",borderRadius:"12px",border:"1px solid rgba(255,255,255,0.1)",background:"rgba(255,255,255,0.06)",fontSize:"0.92rem",fontWeight:600,color:"rgba(232,245,233,0.55)",cursor:"pointer"}}>Cancel</button>
@@ -1069,6 +1085,7 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
   const [confirmLost,setConfirmLost]=useState(false);
   const [confirmDelete,setConfirmDelete]=useState(false);
   const [showStagePicker,setShowStagePicker]=useState(false);
+  const [finalNote,setFinalNote]=useState("");
   const [editingFeedIdx,setEditingFeedIdx]=useState(null);
   const [editFeedData,setEditFeedData]=useState({nutrient:"",qty:"",unit:"tbsp",water:"",intervalDays:""});
   const [deleteFeedIdx,setDeleteFeedIdx]=useState(null);
@@ -1345,10 +1362,10 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
             </div>
             {logEntries.length===0&&<div style={{textAlign:"center",padding:"2rem 0",color:"rgba(232,245,233,0.2)",fontStyle:"italic"}}>Nothing logged yet.</div>}
             {logEntries.map((entry,i)=>{
-              const isFeed=entry.type==="feed";const isWater=entry.type==="water";const isAuto=entry.type==="auto";const isNote=entry.type==="note";
-              const borderColor=isFeed?"#f59e0b":isWater?"#3b82f6":isAuto?C.green:"#8b5cf6";
-              const typeLabel=isFeed?"Feed":isWater?"Water":isAuto?"Auto":"Note";
-              const typeLabelColor=isFeed?"#fbbf24":isWater?"#60a5fa":isAuto?C.green:"#a78bfa";
+              const isFeed=entry.type==="feed";const isWater=entry.type==="water";const isRain=isWater&&entry.data?.source==="rain";const isAuto=entry.type==="auto";const isNote=entry.type==="note";
+              const borderColor=isFeed?"#f59e0b":isRain?"#60a5fa":isWater?"#3b82f6":isAuto?C.green:"#8b5cf6";
+              const typeLabel=isFeed?"Feed":isRain?"Rainfall":isWater?"Water":isAuto?"Auto":"Note";
+              const typeLabelColor=isFeed?"#fbbf24":isRain?"#93c5fd":isWater?"#60a5fa":isAuto?C.green:"#a78bfa";
               const isEditingNote=isNote&&editingNoteIdx===entry.idx;
               const isEditingFeed=isFeed&&editingFeedIdx===entry.idx;
               return(
@@ -1360,7 +1377,7 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
                       {isNote&&!isEditingNote&&<>{actionBtn("Edit","rgba(232,245,233,0.4)",()=>{setEditingNoteIdx(entry.idx);setEditingNoteText(entry.data.text);})}{actionBtn("Delete","#ef4444",()=>setDeleteNoteIdx(entry.idx))}</>}
                       {isAuto&&actionBtn("×","rgba(232,245,233,0.25)",()=>setDeleteNoteIdx(entry.idx))}
                       {isFeed&&!isEditingFeed&&<>{actionBtn("Edit","rgba(232,245,233,0.4)",()=>{setEditingFeedIdx(entry.idx);const qp=(entry.data.qty||"").split(" ");setEditFeedData({nutrient:entry.data.nutrient||"",qty:qp[0]||"",unit:qp.slice(1).join(" ")||"tbsp",water:entry.data.water||"",intervalDays:""});})}{actionBtn("Delete","#ef4444",()=>setDeleteFeedIdx(entry.idx))}</>}
-                      {isWater&&actionBtn("Delete","#ef4444",()=>setDeleteWaterIdx(entry.idx))}
+                      {isWater&&!isRain&&actionBtn("Delete","#ef4444",()=>setDeleteWaterIdx(entry.idx))}
                     </div>
                   </div>
                   {isNote&&(isEditingNote?(
@@ -1397,7 +1414,8 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
                       </div>
                     </div>
                   ))}
-                  {isWater&&<div style={{fontSize:"0.85rem",color:"#60a5fa",fontWeight:500}}>💧 Watered</div>}
+                  {isWater&&isRain&&<div style={{fontSize:"0.85rem",color:"#93c5fd",fontWeight:500}}>🌧 {entry.data.amount}" rainfall{entry.data.note?` — ${entry.data.note.replace(/^🌧 [0-9."]+ rainfall/,"")}`:""}</div>}
+                  {isWater&&!isRain&&<div style={{fontSize:"0.85rem",color:"#60a5fa",fontWeight:500}}>💧 Watered</div>}
                 </div>
               );
             })}
@@ -1458,8 +1476,8 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
       <StagePickerSheet show={showStagePicker} currentStage={crop.stage} onClose={()=>setShowStagePicker(false)} onSelect={(stage,date)=>{setShowStagePicker(false);if(stage==="Done"){onMarkDone({...crop,stage:"Done"});return;}if(stage==="Lost"){onMarkLost({...crop,stage:"Lost"});return;}onChangeStage(crop.id,stage,date);}}/>
 
       {/* Confirm sheets */}
-      <DarkConfirmSheet show={confirmDone} onClose={()=>setConfirmDone(false)} title="Mark as Done?" message={`This will archive ${crop.name}${crop.variety?` (${crop.variety})`:""} and remove it from your active crops.`} confirmLabel="Mark Done" danger={false} onConfirm={()=>onMarkDone({...crop,stage:"Done"})}/>
-      <DarkConfirmSheet show={confirmLost} onClose={()=>setConfirmLost(false)} title="Mark as Lost?" message={`This will archive ${crop.name}${crop.variety?` (${crop.variety})`:""} as a loss.`} confirmLabel="Mark Lost" danger={true} onConfirm={()=>onMarkLost({...crop,stage:"Lost"})}/>
+      <DarkConfirmSheet show={confirmDone} onClose={()=>{setConfirmDone(false);setFinalNote("");}} title="Mark as Done?" message={"This will archive "+crop.name+(crop.variety?" ("+crop.variety+")":"")+" and remove it from your active crops."} confirmLabel="Mark Done" danger={false} onConfirm={()=>{onMarkDone({...crop,stage:"Done",finalNote:finalNote.trim()||null});setFinalNote("");}} extraContent={<textarea value={finalNote} onChange={e=>setFinalNote(e.target.value)} placeholder="Final notes (optional) — yield, observations, would you grow again?" style={{width:"100%",background:"rgba(255,255,255,0.07)",border:"1.5px solid rgba(255,255,255,0.12)",borderRadius:"10px",padding:"10px 12px",fontSize:"0.85rem",color:"white",outline:"none",resize:"none",minHeight:80,marginTop:4,boxSizing:"border-box",fontFamily:"inherit"}}/>}/>
+      <DarkConfirmSheet show={confirmLost} onClose={()=>{setConfirmLost(false);setFinalNote("");}} title="Mark as Lost?" message={"This will archive "+crop.name+(crop.variety?" ("+crop.variety+")":"")+" as a loss."} confirmLabel="Mark Lost" danger={true} onConfirm={()=>{onMarkLost({...crop,stage:"Lost",finalNote:finalNote.trim()||null});setFinalNote("");}} extraContent={<textarea value={finalNote} onChange={e=>setFinalNote(e.target.value)} placeholder="What happened? (optional) — disease, pests, weather, timing..." style={{width:"100%",background:"rgba(255,255,255,0.07)",border:"1.5px solid rgba(255,255,255,0.12)",borderRadius:"10px",padding:"10px 12px",fontSize:"0.85rem",color:"white",outline:"none",resize:"none",minHeight:80,marginTop:4,boxSizing:"border-box",fontFamily:"inherit"}}/>}/>
       <DarkConfirmSheet show={confirmDelete} onClose={()=>setConfirmDelete(false)} title="Delete crop?" message={`${crop.name}${crop.variety?` (${crop.variety})`:""} will be permanently deleted. This cannot be undone.`} confirmLabel="Delete" danger={true} onConfirm={()=>onDeleteCrop(crop.id)}/>
       <DarkConfirmSheet show={deleteNoteIdx!==null} onClose={()=>setDeleteNoteIdx(null)} title="Delete entry?" message="This log entry will be permanently deleted." confirmLabel="Delete" danger={true} onConfirm={()=>{onDeleteNote(crop.id,deleteNoteIdx);setDeleteNoteIdx(null);}}/>
       <DarkConfirmSheet show={deleteFeedIdx!==null} onClose={()=>setDeleteFeedIdx(null)} title="Delete feed entry?" message="This feed log entry will be permanently deleted." confirmLabel="Delete" danger={true} onConfirm={()=>{onDeleteFeed(crop.id,deleteFeedIdx);setDeleteFeedIdx(null);}}/>
@@ -1975,14 +1993,13 @@ const URGENCY_STYLES={
   upcoming:{bg:"rgba(255,255,255,0.04)",border:"rgba(255,255,255,0.08)",dot:"rgba(255,255,255,0.25)",label:"UPCOMING",labelColor:"rgba(232,245,233,0.35)"},
 };
 
-function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFeed,onCropTap,onSuccessionSow,onSettings,onClose}) {
+function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFeed,onCropTap,onSuccessionSow,onRemoveSuccession,onSettings,onClose,confirmDeleteSucc,setConfirmDeleteSucc,confirmFeedTodo,setConfirmFeedTodo,confirmDeleteTodo,setConfirmDeleteTodo}) {
   const [tab,setTab]=useState("tasks");
   const [addText,setAddText]=useState("");
   const [addDue,setAddDue]=useState("");
   const [showDue,setShowDue]=useState(false);
   const [showDone,setShowDone]=useState(false);
-  const [confirmDelete,setConfirmDelete]=useState(null);
-  const [confirmFeed,setConfirmFeed]=useState(null);
+  const confirmDelete=confirmDeleteTodo;const setConfirmDelete=setConfirmDeleteTodo;
   const [dismissedSucc,setDismissedSucc]=useState([]);
   const t0=todayStr();
 
@@ -2100,7 +2117,7 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFe
                       <div style={{fontSize:"0.72rem",color:"rgba(232,245,233,0.45)",marginTop:1}}>{t.crop.name} · every {t.crop.successionDays}d</div>
                       <div style={{fontSize:"0.78rem",color:isOverdue?"#fca5a5":C.green,marginTop:4,fontWeight:600}}>{t.sub}</div>
                     </div>
-                    <button onClick={()=>setDismissedSucc(d=>[...d,t.id])} style={{background:"none",border:"none",color:"rgba(255,255,255,0.2)",fontSize:"1.2rem",cursor:"pointer",padding:"0 2px",lineHeight:1,flexShrink:0}}>×</button>
+                    <button onClick={()=>setConfirmDeleteSucc(t)} style={{background:"none",border:"none",color:"rgba(255,255,255,0.2)",fontSize:"1.2rem",cursor:"pointer",padding:"0 2px",lineHeight:1,flexShrink:0}}>×</button>
                   </div>
                   <div style={{marginTop:10,display:"flex",gap:8}}>
                     <button onClick={()=>onSuccessionSow&&onSuccessionSow(t.crop)} style={{flex:1,background:isOverdue?"#ef4444":C.green,color:"white",border:"none",borderRadius:"10px",padding:"9px 12px",fontSize:"0.82rem",fontWeight:700,cursor:"pointer"}}>
@@ -2185,7 +2202,7 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFe
                             )}
                           </div>
                           {isFeed&&(
-                            <button onClick={e=>{e.stopPropagation();if(!fedToday)setConfirmFeed(t);}} style={{background:fedToday?"rgba(34,197,94,0.15)":"#f59e0b",color:fedToday?C.green:"white",border:fedToday?`1px solid ${C.green}`:"none",borderRadius:"10px",padding:"7px 12px",fontSize:"0.75rem",fontWeight:700,cursor:fedToday?"default":"pointer",flexShrink:0,transition:"all 0.2s"}}>
+                            <button onClick={e=>{e.stopPropagation();if(!fedToday)setConfirmFeedTodo(t);}} style={{background:fedToday?"rgba(34,197,94,0.15)":"#f59e0b",color:fedToday?C.green:"white",border:fedToday?`1px solid ${C.green}`:"none",borderRadius:"10px",padding:"7px 12px",fontSize:"0.75rem",fontWeight:700,cursor:fedToday?"default":"pointer",flexShrink:0,transition:"all 0.2s"}}>
                               {fedToday?"Fed ✓":"Feed"}
                             </button>
                           )}
@@ -2200,24 +2217,14 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFe
         )}
       </div>
 
-      {/* Dark confirm sheets */}
-      <DarkConfirmSheet show={!!confirmDelete} onClose={()=>setConfirmDelete(null)} title="Delete task?" message={confirmDelete?`"${confirmDelete.text}" will be permanently deleted.`:""} confirmLabel="Delete" danger onConfirm={()=>{onDeleteTodo(confirmDelete.id);setConfirmDelete(null);}}/>
-      <DarkConfirmSheet show={!!confirmFeed} onClose={()=>setConfirmFeed(null)} title="Mark as fed?" message={confirmFeed?`Log a feeding for ${confirmFeed.crop.name}${confirmFeed.crop.variety?` · ${confirmFeed.crop.variety}`:""} - ${confirmFeed.nutrient}?`:""} confirmLabel="Log Feed" onConfirm={()=>{
-        if(confirmFeed){
-          const sched=confirmFeed.crop.feedSchedules?.[confirmFeed.nutrient];
-          const qty=sched?.qty&&sched?.unit?`${sched.qty} ${sched.unit}`:null;
-          const water=sched?.water&&sched?.waterUnit?`${sched.water} ${sched.waterUnit}`:null;
-          onLogFeed(confirmFeed.crop.id,confirmFeed.nutrient,qty,water,null);
-          setConfirmFeed(null);
-        }
-      }}/>
     </div>
   );
 }
 
 
 // ── Weather Panel ──────────────────────────────────────────────
-function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onSettings,onClose}) {
+function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onSettings,onClose,expandedDay,setExpandedDay}) {
+  const [showHourly,setShowHourly]=useState(false);
   if(!show) return null;
   const today=weatherData?.today||null;
   const forecast=weatherData?.forecast||[];
@@ -2265,6 +2272,7 @@ function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onSetti
               <div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.14em",textTransform:"uppercase",color:"rgba(186,230,253,0.6)",marginBottom:16}}>
                 {now.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})}
               </div>
+              <div style={{fontSize:"0.6rem",fontWeight:700,letterSpacing:"0.14em",textTransform:"uppercase",color:"rgba(186,230,253,0.4)",marginBottom:6}}>Current Conditions</div>
               <div style={{display:"flex",alignItems:"flex-start",gap:14,marginBottom:6}}>
                 <div style={{fontSize:"5rem",fontWeight:800,color:"white",lineHeight:1,letterSpacing:"-0.03em"}}>{Math.round(today.currentTemp)}°</div>
                 <div style={{paddingTop:10}}>
@@ -2273,7 +2281,8 @@ function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onSetti
                   {today.feelsLike!=null&&<div style={{fontSize:"0.72rem",color:"rgba(186,230,253,0.45)",marginTop:2}}>Feels like {Math.round(today.feelsLike)}°</div>}
                 </div>
               </div>
-              <div style={{fontSize:"1rem",fontWeight:600,color:"rgba(186,230,253,0.85)",marginBottom:18}}>{isNight&&today.info?.label!=="Clear sky"?today.info?.label:isNight?"Clear night":today.info?.label}</div>
+              <div style={{fontSize:"1rem",fontWeight:600,color:"rgba(186,230,253,0.85)",marginBottom:8}}>{isNight&&today.info?.label!=="Clear sky"?today.info?.label:isNight?"Clear night":today.info?.label}</div>
+              {today.summary&&<div style={{fontSize:"0.82rem",color:"rgba(186,230,253,0.6)",lineHeight:1.5,marginBottom:14,fontStyle:"italic"}}>{today.summary}</div>}
               {(today.sunrise||today.sunset)&&(
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                   {[{icon:"🌅",label:"Sunrise",value:fmtTime(today.sunrise)},{icon:"🌇",label:"Sunset",value:fmtTime(today.sunset)}].map(s=>(
@@ -2284,29 +2293,52 @@ function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onSetti
                   ))}
                 </div>
               )}
-            </div>
-
-            {/* Stats grid */}
-            <div style={{padding:"16px 16px 0"}}>
-              <div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"rgba(134,239,172,0.45)",marginBottom:10}}>Conditions</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
+              {/* Conditions grid — inside hero */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginTop:12}}>
                 {[
                   {label:"Humidity",value:`${Math.round(today.humidity)}%`,sub:null},
                   {label:"Dew Point",value:today.dewPoint!=null?`${Math.round(today.dewPoint)}°`:"-",sub:null},
                   {label:"UV Index",value:`${Math.round(today.uvIndex||0)}`,sub:uvLabel,subColor:uvColor},
                   {label:"Wind",value:today.wind!=null?`${Math.round(today.wind)} mph`:"-",sub:null},
                   {label:"Gusts",value:today.windGusts!=null?`${Math.round(today.windGusts)} mph`:"-",sub:null},
-                  {label:"Rain",value:`${today.precipProb||0}%`,sub:"chance",subColor:"#60a5fa"},
+                  {label:"Rain",value:`${today.precipProb||0}%`,sub:"chance",subColor:"#93c5fd"},
                 ].map(s=>(
-                  <div key={s.label} style={{background:C.bgCard,borderRadius:"12px",padding:"11px 10px",border:"1px solid rgba(255,255,255,0.06)"}}>
-                    <div style={{fontSize:"0.58rem",fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"rgba(232,245,233,0.3)",marginBottom:5}}>{s.label}</div>
-                    <div style={{fontSize:"1rem",fontWeight:800,color:"white",lineHeight:1}}>{s.value}</div>
-                    {s.sub&&<div style={{fontSize:"0.62rem",fontWeight:600,color:s.subColor||"rgba(232,245,233,0.35)",marginTop:3}}>{s.sub}</div>}
+                  <div key={s.label} style={{background:"rgba(255,255,255,0.1)",borderRadius:"10px",padding:"9px 10px",backdropFilter:"blur(4px)"}}>
+                    <div style={{fontSize:"0.58rem",fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"rgba(186,230,253,0.5)",marginBottom:4}}>{s.label}</div>
+                    <div style={{fontSize:"0.95rem",fontWeight:800,color:"white",lineHeight:1}}>{s.value}</div>
+                    {s.sub&&<div style={{fontSize:"0.62rem",fontWeight:600,color:s.subColor||"rgba(186,230,253,0.5)",marginTop:3}}>{s.sub}</div>}
                   </div>
                 ))}
               </div>
+            </div>
 
-              {/* 7-day forecast */}
+            {/* Hourly toggle */}
+            {today.hours&&today.hours.length>0&&(
+              <div style={{padding:"12px 16px 12px"}}>
+                <button onClick={()=>setShowHourly(v=>!v)} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"10px",padding:"8px 14px",color:"rgba(232,245,233,0.55)",fontSize:"0.78rem",fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,width:"100%",justifyContent:"center"}}>
+                  <span style={{transform:showHourly?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.2s",display:"inline-block"}}>›</span>
+                  {showHourly?"Hide":"Show"} hourly forecast
+                </button>
+                {showHourly&&(
+                  <div style={{marginTop:8,overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+                    <div style={{display:"flex",gap:8,paddingBottom:4,minWidth:"max-content"}}>
+                      {today.hours.filter(h=>h.hour>=6).map(h=>(
+                        <div key={h.hour} style={{background:"rgba(255,255,255,0.06)",borderRadius:"10px",padding:"10px 10px",textAlign:"center",minWidth:"52px",border:"1px solid rgba(255,255,255,0.07)"}}>
+                          <div style={{fontSize:"0.62rem",color:"rgba(232,245,233,0.4)",fontWeight:600,marginBottom:4}}>{h.hour===12?"12pm":h.hour<12?`${h.hour}am`:h.hour===0?"12am":`${h.hour-12}pm`}</div>
+                          <div style={{fontSize:"0.9rem",marginBottom:2}}>{decodeWMO(h.code).emoji}</div>
+                          <div style={{fontSize:"0.82rem",fontWeight:700,color:"white"}}>{Math.round(h.temp)}°</div>
+                          <div style={{fontSize:"0.62rem",color:"rgba(186,230,253,0.5)",marginTop:2}}>{h.humidity}%</div>
+                          {h.precip>10&&<div style={{fontSize:"0.62rem",color:"#93c5fd",marginTop:1}}>☔{h.precip}%</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 7-day forecast */}
+            <div style={{padding:"0 16px 0"}}>
               {forecast.length>0&&(
                 <>
                   <div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"rgba(134,239,172,0.45)",marginBottom:10}}>7-Day Forecast</div>
@@ -2314,7 +2346,7 @@ function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onSetti
                     {forecast.map((day,i)=>{
                       const hasRain=day.precipProb>20||day.precip>0;
                       return(
-                        <div key={day.date} style={{display:"flex",alignItems:"center",gap:10,background:hasRain?"rgba(59,130,246,0.07)":C.bgCard,border:`1px solid ${hasRain?"rgba(59,130,246,0.18)":"rgba(255,255,255,0.06)"}`,borderRadius:"14px",padding:"11px 14px"}}>
+                        <div key={day.date} onClick={()=>setExpandedDay(i)} style={{display:"flex",alignItems:"center",gap:10,background:hasRain?"rgba(59,130,246,0.07)":C.bgCard,border:`1px solid ${hasRain?"rgba(59,130,246,0.18)":"rgba(255,255,255,0.06)"}`,borderRadius:"14px",padding:"11px 14px",cursor:"pointer"}}>
                           <div style={{fontSize:"1.4rem",flexShrink:0,width:32,textAlign:"center",lineHeight:1}}>{day.info.emoji}</div>
                           <div style={{flex:1,minWidth:0}}>
                             <div style={{display:"flex",alignItems:"baseline",gap:6}}>
@@ -2326,10 +2358,11 @@ function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onSetti
                               {hasRain&&<span style={{fontSize:"0.65rem",color:"#60a5fa",fontWeight:700,flexShrink:0}}>☔ {day.precipProb}%</span>}
                             </div>
                           </div>
-                          <div style={{textAlign:"right",flexShrink:0}}>
+                          <div style={{textAlign:"right",flexShrink:0,marginRight:4}}>
                             <div style={{fontSize:"0.92rem",fontWeight:800,color:"#fb923c"}}>{Math.round(day.high)}°</div>
                             <div style={{fontSize:"0.72rem",color:"rgba(232,245,233,0.4)",marginTop:1}}>{Math.round(day.low)}°</div>
                           </div>
+                          <span style={{fontSize:"0.75rem",color:"rgba(255,255,255,0.2)",flexShrink:0}}>›</span>
                         </div>
                       );
                     })}
@@ -2352,12 +2385,11 @@ function WeatherPanel({show,weatherData,location,loading,error,onRefresh,onSetti
 }
 
 // ── Report Panel ───────────────────────────────────────────────
-// ── Report Panel ───────────────────────────────────────────────
-function ReportPanel({show,crops,onRestore,onDeleteCrop,onSettings,onClose}) {
+function ReportPanel({show,crops,onRestore,onDeleteCrop,onSettings,onClose,confirmDeleteArchived,setConfirmDeleteArchived,confirmRestore,setConfirmRestore}) {
   const [sec,setSec]=useState("overview");
-  const [confirmRestore,setConfirmRestore]=useState(null);
-  const [confirmDeleteArchived,setConfirmDeleteArchived]=useState(null);
+  const [selYear,setSelYear]=useState(null);
   const [toast,setToast]=useState(null);
+  useEffect(()=>{if(!show) setSec("overview");},[show]);
 
   const showToast=msg=>{setToast(msg);setTimeout(()=>setToast(null),1600);};
 
@@ -2383,37 +2415,58 @@ function ReportPanel({show,crops,onRestore,onDeleteCrop,onSettings,onClose}) {
   },{});
   const harvestRows=Object.values(harvestByCrop).sort((a,b)=>b.total-a.total);
 
-  // Feeding summary
-  const feedingRows=active.filter(c=>Object.keys(c.feedSchedules||{}).length>0).map(c=>{
+  // Feeding summary — all active crops with any feed history or schedule
+  const feedingRows=active.filter(c=>Object.keys(c.feedSchedules||{}).length>0||(c.feedLog||[]).length>0).map(c=>{
     const acc=cropAccent(c);
     const schedules=c.feedSchedules||{};
     const fl=c.feedLog||[];
-    const overdue=Object.entries(schedules).some(([n,d])=>{const l=[...fl].reverse().find(f=>f.nutrient===n);return l&&daysAgo(l.date)>=scheduleDays(d);});
+    const hasSchedule=Object.keys(schedules).length>0;
+    const overdue=hasSchedule&&Object.entries(schedules).some(([n,d])=>{const l=[...fl].reverse().find(f=>f.nutrient===n);return l&&daysAgo(l.date)>=scheduleDays(d);});
     const lastFeedEntry=[...fl].sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
-    return{name:c.name,variety:c.variety,feedCount:fl.length,schedCount:Object.keys(schedules).length,overdue,accent:acc,lastFed:lastFeedEntry?fmtDate(lastFeedEntry.date):null,nutrient:Object.keys(schedules)[0]||"",every:scheduleDays(Object.values(schedules)[0])||0};
-  });
+    const nutrients=[...new Set(fl.map(f=>f.nutrient).filter(Boolean))];
+    return{name:c.name,variety:c.variety,feedCount:fl.length,schedCount:Object.keys(schedules).length,hasSchedule,overdue,accent:acc,lastFed:lastFeedEntry?fmtDate(lastFeedEntry.date):null,lastNutrient:lastFeedEntry?.nutrient||"",nutrients,nutrient:Object.keys(schedules)[0]||"",every:scheduleDays(Object.values(schedules)[0])||0};
+  }).sort((a,b)=>b.overdue-a.overdue||b.feedCount-a.feedCount);
 
   // Watering summary
   const wateringRows=active.map(c=>{
     const acc=cropAccent(c);
     const wl=(c.waterLog||[]).sort((a,b)=>new Date(b.date)-new Date(a.date));
     const lastDays=wl.length?daysAgo(wl[0].date):null;
-    const recent=wl.slice(0,3).map(w=>fmtDate(w.date));
+    const manualWl=wl.filter(w=>!w.auto||w.source!=="rain");
+    const rainWl=wl.filter(w=>w.auto&&w.source==="rain");
+    const recentAll=wl.slice(0,4).map(w=>({date:fmtDate(w.date),isRain:w.auto&&w.source==="rain",amount:w.amount}));
     let avgInterval=null;
-    if(wl.length>=2){const diffs=wl.slice(0,-1).map((_,i)=>Math.abs(daysAgo(wl[i].date)-daysAgo(wl[i+1].date)));avgInterval=Math.round(diffs.reduce((a,b)=>a+b,0)/diffs.length);}
-    return{name:c.name,variety:c.variety,daysAgo:lastDays,waterCount:wl.length,avgInterval,accent:acc,recent};
-  }).filter(c=>c.waterCount>0).sort((a,b)=>(a.daysAgo??999)-(b.daysAgo??999));
+    if(manualWl.length>=2){const diffs=manualWl.slice(0,-1).map((_,i)=>Math.abs(daysAgo(manualWl[i].date)-daysAgo(manualWl[i+1].date)));avgInterval=Math.round(diffs.reduce((a,b)=>a+b,0)/diffs.length);}
+    return{name:c.name,variety:c.variety,daysAgo:lastDays,waterCount:manualWl.length,rainCount:rainWl.length,avgInterval,accent:acc,recentAll};
+  }).filter(c=>c.waterCount>0||c.rainCount>0).sort((a,b)=>(a.daysAgo??999)-(b.daysAgo??999));
 
-  const TABS=[{id:"overview",label:"Overview"},{id:"harvests",label:"Harvests"},{id:"feeding",label:"Feeding"},{id:"watering",label:"Watering"}];
+
+  // Location history — group all crops (active + archived) by location and year
+  const allCrops=active.concat(archived);
+  const locHistory=allCrops.reduce((acc,c)=>{
+    const loc=c.location||"Unknown";
+    const year=c.seedDate?c.seedDate.slice(0,4):(c.stageHistory?.[0]?.date||"").slice(0,4)||"Unknown";
+    if(!acc[loc]) acc[loc]={};
+    if(!acc[loc][year]) acc[loc][year]=[];
+    acc[loc][year].push(c);
+    return acc;
+  },{});
 
   return(
     <div style={{position:"fixed",inset:0,zIndex:150,display:"flex",flexDirection:"column",background:C.bg,fontFamily:F.sans}}>
       {/* Header */}
       <div style={{padding:"max(54px,calc(var(--sat, env(safe-area-inset-top, 50px)) + 16px)) 18px 0",flexShrink:0}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:sec==="overview"?16:10}}>
           <div>
-            <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>Report</h1>
-            <div style={{fontSize:"0.78rem",color:C.dashSub,marginTop:5}}>{active.length} active · {archived.length} archived</div>
+            <h1 style={{fontFamily:F.serif,fontSize:"1.85rem",margin:0,color:"white",fontWeight:700,lineHeight:1}}>
+              {sec==="overview"?"Report":sec==="harvests"?"Harvests":sec==="feeding"?"Feeding":sec==="watering"?"Watering":sec==="locations"?"Locations":"Archived"}
+            </h1>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginTop:5}}>
+              <div style={{fontSize:"0.78rem",color:C.dashSub}}>{active.length} active · {archived.length} archived</div>
+              {sec!=="overview"&&(
+                <button onClick={()=>setSec("overview")} style={{background:"rgba(34,197,94,0.12)",border:"1px solid rgba(34,197,94,0.25)",borderRadius:"20px",color:C.green,fontSize:"0.88rem",fontWeight:700,cursor:"pointer",padding:"6px 16px 6px 12px",display:"flex",alignItems:"center",gap:4}}>‹ Report</button>
+              )}
+            </div>
           </div>
           <div onClick={onSettings} style={{position:"relative",cursor:"pointer",flexShrink:0,marginTop:4}}>
             <img src={ICON_SRC} alt="Garden Tracker" style={{width:"44px",height:"44px",borderRadius:"11px",objectFit:"cover",boxShadow:"0 0 0 2px rgba(134,239,172,0.22)",display:"block"}}/>
@@ -2422,36 +2475,27 @@ function ReportPanel({show,crops,onRestore,onDeleteCrop,onSettings,onClose}) {
             </div>
           </div>
         </div>
-        <div style={{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.07)",overflowX:"auto"}}>
-          {TABS.map(t=>(
-            <button key={t.id} onClick={()=>setSec(t.id)} style={{flex:1,padding:"10px 4px 12px",border:"none",background:"transparent",fontSize:"0.8rem",fontWeight:700,cursor:"pointer",color:sec===t.id?"white":"rgba(232,245,233,0.3)",borderBottom:`2px solid ${sec===t.id?C.green:"transparent"}`,whiteSpace:"nowrap",transition:"color 0.15s"}}>
-              {t.label}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* Scrollable content */}
       <div style={{flex:1,minHeight:0,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"16px 16px 0",paddingBottom:"calc(68px + env(safe-area-inset-bottom))"}}>
 
-        {/* ── OVERVIEW ── */}
+        {/* ── OVERVIEW HUB ── */}
         {sec==="overview"&&(
           <div style={{display:"flex",flexDirection:"column",gap:12,paddingBottom:20}}>
+            {/* Stats row */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               <div style={{background:C.bgCard,borderRadius:"16px",padding:"18px 14px",textAlign:"center",border:"1px solid rgba(255,255,255,0.06)"}}>
                 <div style={{fontSize:"2.8rem",fontWeight:800,color:C.green,lineHeight:1}}>{active.length}</div>
                 <div style={{fontSize:"0.68rem",fontWeight:700,color:"rgba(232,245,233,0.4)",marginTop:6,letterSpacing:"0.08em",textTransform:"uppercase"}}>Active Crops</div>
               </div>
-              <div onClick={()=>archived.length>0&&setSec("archived")} style={{background:C.bgCard,borderRadius:"16px",padding:"18px 14px",textAlign:"center",border:`1px solid ${archived.length>0?"rgba(34,197,94,0.25)":"rgba(255,255,255,0.06)"}`,cursor:archived.length>0?"pointer":"default"}}>
-                <div style={{fontSize:"2.8rem",fontWeight:800,color:archived.length>0?"rgba(232,245,233,0.45)":"rgba(255,255,255,0.2)",lineHeight:1}}>
-                  {archived.length}{archived.length>0&&<span style={{fontSize:"1.2rem",marginLeft:4}}>›</span>}
-                </div>
+              <div style={{background:C.bgCard,borderRadius:"16px",padding:"18px 14px",textAlign:"center",border:"1px solid rgba(255,255,255,0.06)"}}>
+                <div style={{fontSize:"2.8rem",fontWeight:800,color:"rgba(232,245,233,0.4)",lineHeight:1}}>{archived.length}</div>
                 <div style={{fontSize:"0.68rem",fontWeight:700,color:"rgba(232,245,233,0.3)",marginTop:6,letterSpacing:"0.08em",textTransform:"uppercase"}}>Archived</div>
               </div>
             </div>
-            {archived.length>0&&<div style={{fontSize:"0.72rem",color:"rgba(232,245,233,0.25)",textAlign:"center",fontStyle:"italic"}}>Tap Archived to view and restore past crops</div>}
 
-            {/* By stage */}
+            {/* Crops by stage */}
             {byStage.length>0&&(
               <div style={{background:C.bgCard,borderRadius:"16px",padding:"16px",border:"1px solid rgba(255,255,255,0.06)"}}>
                 <div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"rgba(134,239,172,0.45)",marginBottom:12}}>Crops by Stage</div>
@@ -2477,33 +2521,54 @@ function ReportPanel({show,crops,onRestore,onDeleteCrop,onSettings,onClose}) {
               </div>
             )}
 
-            {/* Harvest summary */}
-            {harvestRows.length>0&&(
-              <div style={{background:C.bgCard,borderRadius:"16px",padding:"16px",border:"1px solid rgba(255,255,255,0.06)"}}>
-                <div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"rgba(134,239,172,0.45)",marginBottom:12}}>Harvest Summary</div>
-                {harvestRows.map((h,i)=>(
-                  <div key={i} style={{display:"flex",alignItems:"center",gap:10,marginBottom:i<harvestRows.length-1?10:0}}>
-                    <div style={{width:3,height:32,borderRadius:"2px",background:`linear-gradient(${h.accent.from},${h.accent.to})`,flexShrink:0}}/>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:"0.58rem",fontWeight:700,letterSpacing:"0.1em",color:"rgba(255,255,255,0.3)",textTransform:"uppercase"}}>{h.name}</div>
-                      <div style={{fontFamily:F.serif,fontStyle:"italic",fontSize:"0.88rem",color:"rgba(255,255,255,0.85)"}}>{h.variety}</div>
-                    </div>
-                    <div style={{textAlign:"right",flexShrink:0}}>
-                      <div style={{fontSize:"0.92rem",fontWeight:800,color:C.green}}>{h.total} {h.unit}</div>
-                      <div style={{fontSize:"0.65rem",color:"rgba(232,245,233,0.3)",marginTop:1}}>{h.count} harvest{h.count!==1?"s":""}</div>
-                    </div>
-                  </div>
-                ))}
+            {/* Hub cards */}
+            {[
+              {
+                id:"harvests",icon:"🌾",label:"Harvests",
+                preview:harvestRows.length>0?`${harvestRows.length} crop${harvestRows.length!==1?"s":""} with harvest data`:"No harvests logged yet",
+                sub:harvestRows.length>0?harvestRows.slice(0,2).map(h=>h.variety).join(", "):null,
+                dim:harvestRows.length===0,
+              },
+              {
+                id:"feeding",icon:"🌿",label:"Feeding",
+                preview:feedingRows.length>0?`${feedingRows.length} crop${feedingRows.length!==1?"s":""} with feeding history`:null,
+                sub:feedingRows.length>0?feedingRows.slice(0,2).map(f=>f.variety).join(", "):"No feedings logged yet",
+                dim:feedingRows.length===0,
+              },
+              {
+                id:"watering",icon:"💧",label:"Watering",
+                preview:(()=>{const recent=active.filter(c=>(c.waterLog||[]).length>0).length;return recent>0?`${recent} crop${recent!==1?"s":""} with watering logs`:"No watering logs yet";})(),
+                sub:(()=>{const w=active.filter(c=>(c.waterLog||[]).length>0).sort((a,b)=>new Date(b.waterLog.slice(-1)[0]?.date)-new Date(a.waterLog.slice(-1)[0]?.date));return w.length>0?"Last: "+(w[0].variety||w[0].name):null;})(),
+                dim:active.filter(c=>(c.waterLog||[]).length>0).length===0,
+              },
+              {
+                id:"locations",icon:"📍",label:"Locations",
+                preview:`${Object.keys(locHistory).length} location${Object.keys(locHistory).length!==1?"s":""}`,
+                sub:Object.keys(locHistory).slice(0,3).join(", "),
+                dim:Object.keys(locHistory).length===0,
+              },
+              {
+                id:"archived",icon:"📦",label:"Archived",
+                preview:archived.length>0?`${archived.length} past crop${archived.length!==1?"s":""}`:null,
+                sub:archived.length>0?archived.slice(0,2).map(c=>c.variety||c.name).join(", "):"Nothing archived yet",
+                dim:archived.length===0,
+              },
+            ].map(card=>(
+              <div key={card.id} onClick={()=>!card.dim&&setSec(card.id)} style={{background:C.bgCard,borderRadius:"16px",padding:"16px 18px",border:"1px solid rgba(255,255,255,0.06)",cursor:card.dim?"default":"pointer",opacity:card.dim?0.5:1,display:"flex",alignItems:"center",gap:14}}>
+                <div style={{fontSize:"1.8rem",flexShrink:0}}>{card.icon}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:"0.95rem",fontWeight:700,color:"white",marginBottom:3}}>{card.label}</div>
+                  <div style={{fontSize:"0.78rem",color:"rgba(232,245,233,0.5)"}}>{card.preview}</div>
+                  {card.sub&&<div style={{fontSize:"0.72rem",color:"rgba(232,245,233,0.3)",marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{card.sub}</div>}
+                </div>
+                {!card.dim&&<div style={{fontSize:"1.2rem",color:"rgba(255,255,255,0.2)",flexShrink:0}}>›</div>}
               </div>
-            )}
-            {harvestRows.length===0&&<div style={{textAlign:"center",padding:"1rem 0",color:"rgba(232,245,233,0.2)",fontStyle:"italic",fontSize:"0.88rem"}}>No harvests logged yet.</div>}
+            ))}
           </div>
         )}
-
         {/* ── ARCHIVED ── */}
         {sec==="archived"&&(
           <div style={{display:"flex",flexDirection:"column",gap:10,paddingBottom:20}}>
-            <button onClick={()=>setSec("overview")} style={{background:"none",border:"none",color:"rgba(232,245,233,0.45)",fontSize:"0.85rem",fontWeight:600,cursor:"pointer",padding:"0 0 4px",display:"flex",alignItems:"center",gap:4}}>‹ Back to Overview</button>
             <div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"rgba(134,239,172,0.45)",marginBottom:4}}>Archived Crops ({archived.length})</div>
             {archived.length===0&&<div style={{textAlign:"center",padding:"2rem",color:"rgba(255,255,255,0.2)",fontStyle:"italic"}}>No archived crops.</div>}
             {[...archived].sort((a,b)=>{
@@ -2564,6 +2629,7 @@ function ReportPanel({show,crops,onRestore,onDeleteCrop,onSettings,onClose}) {
         {sec==="feeding"&&(
           <div style={{display:"flex",flexDirection:"column",gap:8,paddingBottom:20}}>
             {feedingRows.length===0&&<div style={{textAlign:"center",padding:"2rem 0",color:"rgba(232,245,233,0.2)",fontStyle:"italic"}}>No feeding schedules set up yet.</div>}
+            {feedingRows.length===0&&<div style={{textAlign:"center",padding:"2rem 0",color:"rgba(232,245,233,0.2)",fontStyle:"italic"}}>No feedings logged yet.</div>}
             {feedingRows.map((c,i)=>(
               <div key={i} style={{background:C.bgCard,borderRadius:"14px",overflow:"hidden",border:`1px solid ${c.overdue?"rgba(245,158,11,0.2)":"rgba(255,255,255,0.06)"}`,borderLeft:`3px solid ${c.accent.from}`}}>
                 <div style={{padding:"11px 14px 8px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
@@ -2573,12 +2639,17 @@ function ReportPanel({show,crops,onRestore,onDeleteCrop,onSettings,onClose}) {
                       <div style={{fontFamily:F.serif,fontStyle:"italic",fontSize:"0.92rem",color:"rgba(255,255,255,0.9)",lineHeight:1.2}}>{c.variety}</div>
                     </div>
                     {c.overdue&&<span style={{background:"rgba(245,158,11,0.15)",border:"1px solid rgba(245,158,11,0.3)",color:"#fbbf24",fontSize:"0.62rem",fontWeight:700,padding:"3px 8px",borderRadius:"6px"}}>OVERDUE</span>}
+                    {!c.hasSchedule&&<span style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"rgba(232,245,233,0.35)",fontSize:"0.62rem",fontWeight:700,padding:"3px 8px",borderRadius:"6px"}}>NO SCHEDULE</span>}
                   </div>
-                  <div style={{fontSize:"0.7rem",color:"rgba(232,245,233,0.35)",marginTop:4}}>{c.feedCount} feeding{c.feedCount!==1?"s":""} logged · {c.schedCount} schedule{c.schedCount!==1?"s":""}</div>
+                  <div style={{fontSize:"0.7rem",color:"rgba(232,245,233,0.35)",marginTop:4}}>
+                    {c.feedCount} feeding{c.feedCount!==1?"s":""} logged
+                    {c.hasSchedule&&` · ${c.schedCount} schedule${c.schedCount!==1?"s":""}`}
+                  </div>
                 </div>
                 <div style={{padding:"9px 14px"}}>
-                  <div style={{fontSize:"0.75rem",color:c.overdue?"#fbbf24":C.green,fontWeight:600}}>{c.overdue?"⚠ ":"✓ "}{c.nutrient}{c.every?` · every ${c.every}d`:""}</div>
-                  <div style={{fontSize:"0.68rem",color:"rgba(232,245,233,0.3)",marginTop:2}}>{c.lastFed?`Last fed ${c.lastFed}`:"Never fed"}</div>
+                  {c.hasSchedule&&<div style={{fontSize:"0.75rem",color:c.overdue?"#fbbf24":C.green,fontWeight:600,marginBottom:2}}>{c.overdue?"⚠ ":"✓ "}{c.nutrient}{c.every?` · every ${c.every}d`:""}</div>}
+                  {c.nutrients.length>0&&<div style={{fontSize:"0.68rem",color:"rgba(232,245,233,0.4)",marginBottom:2}}>{c.nutrients.slice(0,3).join(", ")}</div>}
+                  <div style={{fontSize:"0.68rem",color:"rgba(232,245,233,0.3)"}}>{c.lastFed?`Last fed ${c.lastFed}`:"Never fed"}</div>
                 </div>
               </div>
             ))}
@@ -2598,20 +2669,100 @@ function ReportPanel({show,crops,onRestore,onDeleteCrop,onSettings,onClose}) {
                     <div>
                       <div style={{fontSize:"0.58rem",fontWeight:700,letterSpacing:"0.1em",color:"rgba(255,255,255,0.3)",textTransform:"uppercase"}}>{c.name}</div>
                       <div style={{fontFamily:F.serif,fontStyle:"italic",fontSize:"0.92rem",color:"rgba(255,255,255,0.9)",lineHeight:1.2}}>{c.variety}</div>
-                      <div style={{fontSize:"0.68rem",color:"rgba(232,245,233,0.3)",marginTop:3}}>{c.waterCount} watering{c.waterCount!==1?"s":""}{c.avgInterval?` · avg every ${c.avgInterval}d`:""}</div>
+                      <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap"}}>
+                        {c.waterCount>0&&<span style={{fontSize:"0.68rem",color:"rgba(232,245,233,0.4)"}}>💧 {c.waterCount} manual{c.avgInterval?` · avg every ${c.avgInterval}d`:""}</span>}
+                        {c.rainCount>0&&<span style={{fontSize:"0.68rem",color:"#93c5fd"}}>🌧 {c.rainCount} rainfall</span>}
+                      </div>
                     </div>
                     <div style={{textAlign:"right",flexShrink:0}}>
-                      <div style={{fontSize:"0.85rem",fontWeight:700,color:waterColor}}>💧 {waterLabel}</div>
+                      <div style={{fontSize:"0.85rem",fontWeight:700,color:waterColor}}>{waterLabel}</div>
                     </div>
                   </div>
-                  {c.recent.length>0&&<div style={{padding:"8px 14px",display:"flex",gap:5,flexWrap:"wrap"}}>
-                    {c.recent.map((date,j)=>(
-                      <span key={j} style={{fontSize:"0.68rem",fontWeight:600,color:"#60a5fa",background:"rgba(59,130,246,0.1)",border:"1px solid rgba(59,130,246,0.15)",padding:"2px 8px",borderRadius:"6px"}}>💧 {date}</span>
+                  {c.recentAll.length>0&&<div style={{padding:"8px 14px",display:"flex",gap:5,flexWrap:"wrap"}}>
+                    {c.recentAll.map((w,j)=>(
+                      <span key={j} style={{fontSize:"0.68rem",fontWeight:600,color:w.isRain?"#93c5fd":"#60a5fa",background:w.isRain?"rgba(147,197,253,0.1)":"rgba(59,130,246,0.1)",border:`1px solid ${w.isRain?"rgba(147,197,253,0.2)":"rgba(59,130,246,0.15)"}`,padding:"2px 8px",borderRadius:"6px"}}>
+                        {w.isRain?"🌧":"💧"} {w.date}{w.isRain&&w.amount?` ${w.amount}"`:""}
+                      </span>
                     ))}
                   </div>}
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {sec==="locations"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:12,paddingBottom:20}}>
+            {(()=>{
+              const allYears=[...new Set(Object.values(locHistory).flatMap(years=>Object.keys(years)))].sort((a,b)=>b.localeCompare(a));
+              const currentYear=selYear&&allYears.includes(selYear)?selYear:allYears[0]||new Date().getFullYear().toString();
+              return(<>
+                {allYears.length>1&&(
+                  <div style={{display:"flex",gap:8,overflowX:"auto",WebkitOverflowScrolling:"touch",paddingBottom:2}}>
+                    {allYears.map(y=>(
+                      <button key={y} onClick={()=>setSelYear(y)} style={{background:currentYear===y?"rgba(34,197,94,0.15)":"rgba(255,255,255,0.06)",border:`1px solid ${currentYear===y?C.green:"rgba(255,255,255,0.1)"}`,borderRadius:"20px",padding:"7px 18px",fontSize:"0.82rem",fontWeight:700,color:currentYear===y?C.green:"rgba(232,245,233,0.45)",cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}>
+                        {y} Season
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {Object.keys(locHistory).length===0&&<div style={{textAlign:"center",padding:"2rem",color:"rgba(232,245,233,0.2)",fontStyle:"italic"}}>No location data yet.</div>}
+                {Object.entries(locHistory).sort(([a],[b])=>a.localeCompare(b)).filter(([loc,years])=>years[currentYear]).map(([loc,years])=>{
+                  const cropsInYear=years[currentYear]||[];
+                  const done=cropsInYear.filter(c=>c.stage==="Done").length;
+                  const lost=cropsInYear.filter(c=>c.stage==="Lost").length;
+                  const actv=cropsInYear.filter(c=>!c.archived).length;
+                  return(
+                    <div key={loc} style={{background:C.bgCard,borderRadius:"16px",overflow:"hidden",border:"1px solid rgba(255,255,255,0.07)"}}>
+                      <div style={{padding:"14px 16px 12px",background:"rgba(255,255,255,0.04)",borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
+                        <div style={{fontSize:"1.05rem",fontWeight:700,color:"white",marginBottom:4}}>📍 {loc}</div>
+                        <div style={{display:"flex",gap:10}}>
+                          {actv>0&&<span style={{fontSize:"0.68rem",fontWeight:700,color:C.green,background:"rgba(34,197,94,0.1)",border:"1px solid rgba(34,197,94,0.2)",borderRadius:"6px",padding:"2px 8px"}}>🌱 {actv} active</span>}
+                          {done>0&&<span style={{fontSize:"0.68rem",fontWeight:700,color:"#86efac",background:"rgba(134,239,172,0.08)",border:"1px solid rgba(134,239,172,0.15)",borderRadius:"6px",padding:"2px 8px"}}>✓ {done} done</span>}
+                          {lost>0&&<span style={{fontSize:"0.68rem",fontWeight:700,color:"#fca5a5",background:"rgba(252,165,165,0.08)",border:"1px solid rgba(252,165,165,0.15)",borderRadius:"6px",padding:"2px 8px"}}>✗ {lost} lost</span>}
+                        </div>
+                      </div>
+                      {cropsInYear.sort((a,b)=>(a.seedDate||"").localeCompare(b.seedDate||"")).map(c=>{
+                        const color=cropColor(c);
+                        const ht=(()=>{const w=(c.harvests||[]).filter(h=>h.amount&&h.unit);if(!w.length)return null;const t={};w.forEach(h=>{t[h.unit]=(t[h.unit]||0)+Number(h.amount);});const top=Object.entries(t).sort((a,b)=>b[1]-a[1])[0];return Math.round(top[1]*100)/100+" "+top[0];})();
+                        const sowDate=c.seedDate?new Date(c.seedDate+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}):null;
+                        const endEntry=c.archived&&[...(c.stageHistory||[])].reverse().find(s=>s.stage==="Done"||s.stage==="Lost");
+                        const endDate=endEntry?new Date(endEntry.date+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}):null;
+                        const days=(()=>{if(!c.seedDate)return null;const end=endEntry?new Date(endEntry.date+"T12:00:00"):new Date();return Math.round((end-new Date(c.seedDate+"T12:00:00"))/86400000);})();
+                        const statusIcon=c.archived?(c.stage==="Done"?"✓":"✗"):"🌱";
+                        const statusColor=c.archived?(c.stage==="Done"?"#86efac":"#fca5a5"):C.green;
+                        return(
+                          <div key={c.id} style={{padding:"12px 16px",borderTop:"1px solid rgba(255,255,255,0.04)"}}>
+                            <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                              <div style={{width:3,minHeight:40,borderRadius:2,background:color,flexShrink:0,alignSelf:"stretch"}}/>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:4}}>
+                                  <div style={{minWidth:0}}>
+                                    <span style={{fontSize:"0.65rem",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",color:"rgba(255,255,255,0.35)"}}>{c.name} </span>
+                                    <span style={{fontFamily:F.serif,fontStyle:"italic",fontSize:"0.92rem",color:"rgba(255,255,255,0.9)"}}>{c.variety||c.name}</span>
+                                  </div>
+                                  <span style={{fontSize:"0.75rem",fontWeight:700,color:statusColor,flexShrink:0}}>{statusIcon} {c.archived?c.stage:"Active"}</span>
+                                </div>
+                                <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                                  {sowDate&&<span style={{fontSize:"0.68rem",color:"rgba(232,245,233,0.35)"}}>🌱 {sowDate}</span>}
+                                  {endDate&&<span style={{fontSize:"0.68rem",color:"rgba(232,245,233,0.35)"}}>→ {endDate}</span>}
+                                  {days&&<span style={{fontSize:"0.68rem",color:"rgba(232,245,233,0.25)"}}>{days}d</span>}
+                                  {ht&&<span style={{fontSize:"0.68rem",fontWeight:700,color:C.green}}>🌾 {ht}</span>}
+                                </div>
+                                {c.finalNote&&<div style={{fontSize:"0.75rem",color:"rgba(232,245,233,0.45)",fontStyle:"italic",lineHeight:1.5,background:"rgba(255,255,255,0.04)",borderRadius:"6px",padding:"5px 8px",marginTop:6}}>{c.finalNote}</div>}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+                {allYears.length>0&&!Object.entries(locHistory).some(([,years])=>years[currentYear])&&(
+                  <div style={{textAlign:"center",padding:"2rem",color:"rgba(232,245,233,0.2)",fontStyle:"italic"}}>No crops recorded for {currentYear}.</div>
+                )}
+              </>);
+            })()}
           </div>
         )}
       </div>
@@ -2620,8 +2771,6 @@ function ReportPanel({show,crops,onRestore,onDeleteCrop,onSettings,onClose}) {
       {toast&&<div style={{position:"absolute",bottom:"calc(68px + env(safe-area-inset-bottom) + 12px)",left:"50%",transform:"translateX(-50%)",background:"rgba(34,197,94,0.92)",color:"white",fontSize:"12px",fontWeight:600,padding:"7px 16px",borderRadius:"20px",whiteSpace:"nowrap",pointerEvents:"none",boxShadow:"0 4px 16px rgba(34,197,94,0.4)"}}>{toast}</div>}
 
       {/* Confirm sheets */}
-      <DarkConfirmSheet show={!!confirmRestore} onClose={()=>setConfirmRestore(null)} title="Restore this crop?" message={confirmRestore?`${confirmRestore.name}${confirmRestore.variety?` (${confirmRestore.variety})`:""} will be moved back to your active crops.`:""} confirmLabel="Restore" danger={false} onConfirm={()=>{onRestore(confirmRestore.id);setConfirmRestore(null);showToast("✅ Crop restored");}}/>
-      <DarkConfirmSheet show={!!confirmDeleteArchived} onClose={()=>setConfirmDeleteArchived(null)} title="Delete crop?" message={confirmDeleteArchived?`${confirmDeleteArchived.name}${confirmDeleteArchived.variety?` (${confirmDeleteArchived.variety})`:""} will be permanently deleted. This cannot be undone.`:""} confirmLabel="Delete" danger={true} onConfirm={()=>{onDeleteCrop(confirmDeleteArchived.id);setConfirmDeleteArchived(null);showToast("🗑️ Deleted");}}/>
     </div>
   );
 }
@@ -2713,6 +2862,7 @@ function App() {
   const [dbLoaded,setDbLoaded]=useState(false);
   const [settings,setSettings]   = useState(null);
   const [locations,setLocations] = useState([]);
+  const [locationMeta,setLocationMeta] = useState({}); // {locName: {outdoor:bool,lastRainSync:dateStr}}
   const [crops,setCrops]         = useState([]);
   const [todos,setTodos]         = useState([]);
   const [nutrients,setNutrients] = useState(DEFAULT_NUTRIENTS);
@@ -2727,7 +2877,7 @@ function App() {
       setDbLoaded(false);
       setSettings(null);
       setLocations([]);
-      setCrops([]);
+      setLocationMeta({});
       setTodos([]);
       setNutrients(DEFAULT_NUTRIENTS);
       setCropNames(DEFAULT_CROPS);
@@ -2740,6 +2890,7 @@ function App() {
         // Existing user - load their data
         if(row.settings)   setSettings(row.settings);
         if(row.locations)  setLocations(row.locations);
+        if(row.location_meta) setLocationMeta(row.location_meta);
         if(row.crops){
           const seen=new Set();
           setCrops(row.crops.map(c=>{
@@ -2776,15 +2927,101 @@ function App() {
   useEffect(()=>{ dbLoadedRef.current = dbLoaded; },[dbLoaded]);
 
   useEffect(()=>{
-    if(!dbLoadedRef.current||!user||!settings) return;
-    scheduleSave({settings,locations,crops,todos,nutrients,crop_names:cropNames,varieties,container_sizes:containerSizes});
-  },[settings,locations,crops,todos,nutrients,cropNames,varieties]);
+    if(!dbLoadedRef.current||!user||!settings||!locations.length) return;
+    scheduleSave({settings,locations,location_meta:locationMeta,crops,todos,nutrients,crop_names:cropNames,varieties,container_sizes:containerSizes});
+  },[settings,locations,locationMeta,crops,todos,nutrients,cropNames,varieties,containerSizes]);
 
   // ── Weather ─────────────────────────────────────────────────
   const [weatherData,setWeatherData]=useState(null);
   const [weatherLocation,setWeatherLocation]=useState(null);
   const [weatherLoading,setWeatherLoading]=useState(false);
   const [weatherError,setWeatherError]=useState("");
+
+  // ── Historical rain sync ─────────────────────────────────────
+  const syncRainData=async(lat,lon,locMeta,cropList)=>{
+    if(!lat||!lon) return;
+    const today=todayStr();
+
+    const outdoorLocs=(locMeta?Object.keys(locMeta):locations).filter(loc=>locMeta?locMeta[loc]?.outdoor===true:locationMeta[loc]?.outdoor===true);
+    const cropData=cropList||crops;
+    console.log('Rain sync: outdoorLocs=',outdoorLocs,'locMeta keys=',Object.keys(locMeta||locationMeta));
+    if(!outdoorLocs.length){console.log('Rain sync: no outdoor locations, skipping');return;}
+
+    const outdoorCrops=cropData.filter(c=>!c.archived&&outdoorLocs.includes(c.location)&&c.seedDate);
+    console.log('Rain sync: outdoorCrops=',outdoorCrops.map(c=>c.name+'/'+c.location));
+    if(!outdoorCrops.length){console.log('Rain sync: no outdoor crops, skipping');return;}
+
+    const earliestCropDate=outdoorCrops.map(c=>c.seedDate).sort()[0];
+    const meta=locMeta||locationMeta;
+    const earliestSync=outdoorLocs.reduce((min,loc)=>{
+      const last=meta[loc]?.lastRainSync;
+      if(!last) return min;
+      return last<min?last:min;
+    },today);
+
+    const startDate=outdoorLocs.some(loc=>!meta[loc]?.lastRainSync)
+      ?earliestCropDate
+      :earliestSync;
+
+    console.log('Rain sync: startDate=',startDate,'earliestCropDate=',earliestCropDate);
+    if(startDate>=today){console.log('Rain sync: already up to date');return;}
+
+    try{
+      // Use forecast API with past_days - more reliable than archive API which lags 5-7 days
+      const pastDays=Math.min(92,Math.ceil((new Date()-new Date(startDate+"T00:00:00"))/86400000));
+      if(pastDays<=0){console.log('Rain sync: nothing to fetch');return;}
+      const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=precipitation_sum&past_days=${pastDays}&forecast_days=1&timezone=auto&precipitation_unit=inch`;
+      console.log('Rain sync: fetching with past_days=',pastDays,url);
+      const res=await fetch(url);
+      if(!res.ok){console.log('Rain sync: fetch failed',res.status);return;}
+      const raw=await res.json();
+      console.log('Rain sync: got data, days=',raw?.daily?.time?.length,'precip=',raw?.daily?.precipitation_sum);
+      if(!raw?.daily?.time) return;
+
+      const rainByDate={};
+      raw.daily.time.forEach((date,i)=>{
+        const amount=raw.daily.precipitation_sum[i];
+        if(amount&&amount>0.01) rainByDate[date]=Math.round(amount*100)/100;
+      });
+
+      if(!Object.keys(rainByDate).length){
+        // No rain in range — just update sync dates
+        setLocationMeta(prev=>{
+          const updated={...prev};
+          outdoorLocs.forEach(loc=>{updated[loc]={...updated[loc],lastRainSync:today};});
+          return updated;
+        });
+        return;
+      }
+
+      // Add rain entries to each outdoor crop's waterLog
+      setCrops(cs=>cs.map(c=>{
+        if(!outdoorLocs.includes(c.location)||c.archived) return c;
+        const existingDates=new Set((c.waterLog||[]).filter(w=>w.auto&&w.source==="rain").map(w=>w.date?.slice(0,10)));
+        const newEntries=Object.entries(rainByDate)
+          .filter(([date])=>date>=c.seedDate&&!existingDates.has(date))
+          .map(([date,amount])=>({date:`${date}T12:00:00.000Z`,amount,unit:"in",auto:true,source:"rain",note:`🌧 ${amount}" rainfall`}));
+        if(!newEntries.length) return c;
+        const combined=[...(c.waterLog||[]),...newEntries].sort((a,b)=>new Date(a.date)-new Date(b.date));
+        return {...c,waterLog:combined};
+      }));
+
+      // Update lastRainSync for all outdoor locations
+      setLocationMeta(prev=>{
+        const updated={...prev};
+        outdoorLocs.forEach(loc=>{updated[loc]={...updated[loc],lastRainSync:today};});
+        return updated;
+      });
+    }catch(e){console.warn("Rain sync failed:",e);}
+  };
+
+  // Trigger rain sync with fresh state after weather loads or locationMeta changes
+  useEffect(()=>{
+    if(!dbLoaded||!weatherLocation?.lat||!weatherLocation?.lon) return;
+    const outdoorLocs=Object.keys(locationMeta).filter(loc=>locationMeta[loc]?.outdoor===true);
+    if(!outdoorLocs.length) return;
+    syncRainData(weatherLocation.lat,weatherLocation.lon,locationMeta,crops);
+  },[weatherLocation,locationMeta,dbLoaded]);
 
   const loadWeather=async(zipCode)=>{
     if(!zipCode||!/^\d{5}$/.test(zipCode)){setWeatherError("ZIP code required for weather");return;}
@@ -2795,6 +3032,73 @@ function App() {
       setWeatherLocation(geo);
       const raw=await fetchWeather(geo.lat,geo.lon);
       if(!raw){setWeatherError("Weather data unavailable - check connection");setWeatherLoading(false);return;}
+      // Rain sync triggered separately via useEffect with fresh state
+      const hourlyVal=(field,dayIdx,hour)=>{
+        const idx=(raw.hourly?.time||[]).findIndex(t=>t===`${raw.daily.time[dayIdx]}T${String(hour).padStart(2,'0')}:00`);
+        return idx>=0?raw.hourly[field]?.[idx]:null;
+      };
+      const dayHours=(dayIdx)=>{
+        const prefix=raw.daily.time[dayIdx];
+        return (raw.hourly?.time||[]).reduce((acc,t,i)=>{
+          if(t.startsWith(prefix)){
+            const hour=parseInt(t.slice(11,13));
+            acc.push({hour,temp:raw.hourly.temperature_2m?.[i],code:raw.hourly.weather_code?.[i],precip:raw.hourly.precipitation_probability?.[i],humidity:raw.hourly.relative_humidity_2m?.[i]});
+          }
+          return acc;
+        },[]);
+      };
+      const dayPeriods=(dayIdx)=>({
+        morning:{temp:hourlyVal('temperature_2m',dayIdx,7),code:hourlyVal('weather_code',dayIdx,7),precip:hourlyVal('precipitation_probability',dayIdx,7)},
+        midday:{temp:hourlyVal('temperature_2m',dayIdx,13),code:hourlyVal('weather_code',dayIdx,13),precip:hourlyVal('precipitation_probability',dayIdx,13)},
+        night:{temp:hourlyVal('temperature_2m',dayIdx,20),code:hourlyVal('weather_code',dayIdx,20),precip:hourlyVal('precipitation_probability',dayIdx,20)},
+      });
+      const makeSummary=(dayIdx,info)=>{
+        const prefix=raw.daily.time[dayIdx];
+        const hours=(raw.hourly?.time||[]).reduce((acc,t,i)=>{
+          if(t.startsWith(prefix)){
+            acc.push({hour:parseInt(t.slice(11,13)),temp:raw.hourly.temperature_2m?.[i],code:raw.hourly.weather_code?.[i],precip:raw.hourly.precipitation_probability?.[i]});
+          }
+          return acc;
+        },[]);
+        if(!hours.length) return info.label+".";
+
+        const get=(h)=>hours.find(x=>x.hour===h)||null;
+        const morning=get(7)||get(8)||get(9);
+        const midday=get(12)||get(13);
+        const afternoon=get(15)||get(16);
+        const evening=get(19)||get(20);
+
+        const desc=(h)=>h?decodeWMO(h.code).label:"";
+        const temp=(h)=>h?.temp!=null?`${Math.round(h.temp)}°`:"";
+        const rainHours=hours.filter(h=>h.hour>=6&&h.hour<=22&&h.precip>50);
+        const maxPrecip=Math.max(...hours.filter(h=>h.hour>=6&&h.hour<=22).map(h=>h.precip||0));
+        const maxTemp=Math.max(...hours.filter(h=>h.hour>=10&&h.hour<=18).map(h=>h.temp||0));
+        const minTemp=Math.min(...hours.filter(h=>h.hour>=0&&h.hour<=6).map(h=>h.temp||Infinity));
+
+        const parts=[];
+
+        // Morning description
+        if(morning) parts.push(`${desc(morning)} morning (${temp(morning)})`);
+
+        // Midday/afternoon
+        if(midday){
+          if(desc(midday)!==desc(morning)) parts.push(`${desc(midday).toLowerCase()} by midday (${temp(midday)})`);
+          else parts.push(`continuing into the afternoon (${temp(afternoon||midday)})`);
+        }
+
+        // Evening
+        if(evening&&desc(evening)!==desc(midday||morning)) parts.push(`${desc(evening).toLowerCase()} by evening (${temp(evening)})`);
+
+        // Rain warning
+        if(rainHours.length>=3) parts.push(`rain likely for much of the day`);
+        else if(rainHours.length>0){
+          const start=rainHours[0].hour;
+          const label=start<12?`morning`:start<17?`afternoon`:`evening`;
+          parts.push(`rain possible in the ${label}`);
+        }
+
+        return parts.join(", ")+".";
+      };
       const today={
         date:raw.daily.time[0],
         currentTemp:raw.current.temperature_2m,
@@ -2811,6 +3115,9 @@ function App() {
         sunrise:raw.daily.sunrise?.[0]||null,
         sunset:raw.daily.sunset?.[0]||null,
         info:decodeWMO(raw.current.weather_code),
+        periods:dayPeriods(0),
+        hours:dayHours(0),
+        summary:makeSummary(0,decodeWMO(raw.current.weather_code)),
       };
       const forecast=raw.daily.time.slice(1).map((d,i)=>({
         date:d,
@@ -2820,6 +3127,9 @@ function App() {
         precipProb:raw.daily.precipitation_probability_max?.[i+1]||0,
         humidity:raw.daily.relative_humidity_2m_mean?.[i+1],
         info:decodeWMO(raw.daily.weather_code[i+1]),
+        periods:dayPeriods(i+1),
+        hours:dayHours(i+1),
+        summary:makeSummary(i+1,decodeWMO(raw.daily.weather_code[i+1])),
       }));
       setWeatherData({today,forecast});
     }catch(e){setWeatherError("Weather fetch failed");}
@@ -2842,7 +3152,14 @@ function App() {
   const navigate = (v) => { setPrevView(view); setView(v); };
   const [selLoc,setSelLoc]         = useState(null);
   const [selLocSheet,setSelLocSheet] = useState(null);
-  const [locSorts,setLocSorts]       = useState({}); // {locationName: sortId}
+  const [locSorts,setLocSorts]       = useState({});
+  const [expandedWeatherDay,setExpandedWeatherDay] = useState(null);
+  const [confirmDeleteSucc,setConfirmDeleteSucc]   = useState(null);
+  const [confirmDeleteArchived,setConfirmDeleteArchived] = useState(null);
+  const [confirmRestore,setConfirmRestore]         = useState(null);
+  const [confirmFeedTodo,setConfirmFeedTodo]       = useState(null);
+  const [confirmDeleteLoc,setConfirmDeleteLoc]     = useState(null);
+  const [confirmDeleteTodo,setConfirmDeleteTodo]   = useState(null);
   const [selCrop,setSelCrop]   = useState(null);
   const [editCrop,setEditCrop] = useState(null);
 
@@ -2864,11 +3181,13 @@ function App() {
     return <Wizard onComplete={(s,addCrop)=>{
       const newSettings={gardenName:s.gardenName,zone:s.zone,zip:s.zip};
       const newLocations=s.locations;
+      const newLocMeta=s.locMeta||{};
       setSettings(newSettings);
       setLocations(newLocations);
+      setLocationMeta(newLocMeta);
       setView(addCrop?"addCrop":"dashboard");
       // Immediately save to Supabase so new user's data is persisted right away
-      if(user) dbSave(user.id,{settings:newSettings,locations:newLocations,crops:[],todos:[],nutrients:DEFAULT_NUTRIENTS,crop_names:DEFAULT_CROPS,varieties:{}});
+      if(user) dbSave(user.id,{settings:newSettings,locations:newLocations,location_meta:newLocMeta,crops:[],todos:[],nutrients:DEFAULT_NUTRIENTS,crop_names:DEFAULT_CROPS,varieties:{}});
     }}/>;
   }
 
@@ -2894,7 +3213,7 @@ function App() {
     setCrops(cs=>{
       // Defensive: if ID collides with an existing crop AND we're not editing it, force a new unique ID
       const existingIdx=cs.findIndex(x=>x.id===crop.id);
-      const isEdit=!!(initialCropBeingEdited && initialCropBeingEdited.id===crop.id);
+      const isEdit=!!(initialCropBeingEdited && initialCropBeingEdited.id===crop.id) || existingIdx>=0 && !!crop.archived;
       const initStageHistory=[{stage:crop.stage||"Seed",date:crop.seedDate||t0}];
       if(existingIdx>=0 && !isEdit){
         // Collision on add - create a new crop with a guaranteed-unique ID
@@ -3159,12 +3478,82 @@ function App() {
       <CropFormPanel show={view==="addCrop"||view==="editCrop"} initial={view==="editCrop"?editCrop:(view==="addCrop"&&editCrop?.id===null?editCrop:null)} locations={locations} cropNames={cropNames} varieties={varieties} containerSizes={containerSizes} onAddContainerSize={s=>setContainerSizes(cs=>[...new Set([...cs,s])])} onRemoveCropName={n=>setCropNames(cs=>cs.filter(x=>x!==n))} onRemoveVariety={(name,v)=>setVarieties(vs=>({...vs,[name]:(vs[name]||[]).filter(x=>x!==v)}))} onRemoveContainerSize={s=>setContainerSizes(cs=>cs.filter(x=>x!==s))} defaultLocation={view==="addCrop"&&!editCrop?selLoc:null}
         onSave={saveCrop} onClose={()=>{setEditCrop(null);setView(view==="editCrop"?"crop":"dashboard");}}/>
 
-      <TodoPanel show={view==="todo"} crops={crops} todos={todos} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} onLogFeed={logFeed} onCropTap={c=>{setSelCrop(c);setView("crop");}} onSuccessionSow={c=>{setEditCrop({...c,id:null,seedDate:todayStr(),stageHistory:[],waterLog:[],feedLog:[],harvests:[],notes:[],feedSchedules:{}});setView("addCrop");}} onSettings={()=>setView("settings")} onClose={()=>setView("dashboard")}/>
-      <WeatherPanel show={view==="weather"} weatherData={weatherData} location={weatherLocation} loading={weatherLoading} error={weatherError} onRefresh={()=>settings?.zip&&loadWeather(settings.zip)} onSettings={()=>setView("settings")} onClose={()=>setView("dashboard")}/>
-      <ReportPanel show={view==="report"} crops={crops} onRestore={restoreCrop} onDeleteCrop={id=>{setCrops(cs=>cs.filter(c=>c.id!==id));}} onSettings={()=>setView("settings")} onClose={()=>setView("dashboard")}/>
-      <SettingsPanel show={view==="settings"} settings={settings} locations={locations} crops={crops}
+      <TodoPanel show={view==="todo"} crops={crops} todos={todos} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} onLogFeed={logFeed} onCropTap={c=>{setSelCrop(c);setView("crop");}} onSuccessionSow={c=>{setEditCrop({...c,id:null,seedDate:todayStr(),stageHistory:[],waterLog:[],feedLog:[],harvests:[],notes:[],feedSchedules:{}});setView("addCrop");}} onRemoveSuccession={cropId=>setCrops(cs=>cs.map(c=>c.id===cropId?{...c,successionDays:null}:c))} onSettings={()=>setView("settings")} confirmDeleteSucc={confirmDeleteSucc} setConfirmDeleteSucc={setConfirmDeleteSucc} confirmFeedTodo={confirmFeedTodo} setConfirmFeedTodo={setConfirmFeedTodo} confirmDeleteTodo={confirmDeleteTodo} setConfirmDeleteTodo={setConfirmDeleteTodo} onClose={()=>setView("dashboard")}/>
+      <WeatherPanel show={view==="weather"} weatherData={weatherData} location={weatherLocation} loading={weatherLoading} error={weatherError} onRefresh={()=>settings?.zip&&loadWeather(settings.zip)} onSettings={()=>setView("settings")} expandedDay={expandedWeatherDay} setExpandedDay={setExpandedWeatherDay} onClose={()=>setView("dashboard")}/>
+      <ReportPanel show={view==="report"} crops={crops} onRestore={restoreCrop} onDeleteCrop={id=>{setCrops(cs=>cs.filter(c=>c.id!==id));}} onSettings={()=>setView("settings")} confirmDeleteArchived={confirmDeleteArchived} setConfirmDeleteArchived={setConfirmDeleteArchived} confirmRestore={confirmRestore} setConfirmRestore={setConfirmRestore} onClose={()=>setView("dashboard")}/>
+
+      {/* App-level sheets — outside panel stacking contexts, always above nav */}
+      <DarkConfirmSheet show={!!confirmDeleteSucc} onClose={()=>setConfirmDeleteSucc(null)} title="Remove succession schedule?" message={confirmDeleteSucc?`This will turn off succession sowing for ${confirmDeleteSucc.crop.name}${confirmDeleteSucc.crop.variety?` · ${confirmDeleteSucc.crop.variety}`:""}. The existing crop will not be affected.`:""} confirmLabel="Remove Schedule" danger onConfirm={()=>{setCrops(cs=>cs.map(c=>c.id===confirmDeleteSucc.crop.id?{...c,successionDays:null}:c));setConfirmDeleteSucc(null);}}/>
+      <DarkConfirmSheet show={!!confirmDeleteArchived} onClose={()=>setConfirmDeleteArchived(null)} title="Delete crop?" message={confirmDeleteArchived?confirmDeleteArchived.name+(confirmDeleteArchived.variety?" ("+confirmDeleteArchived.variety+")":"")+" will be permanently deleted. This cannot be undone.":""} confirmLabel="Delete" danger={true} onConfirm={()=>{setCrops(cs=>cs.filter(c=>c.id!==confirmDeleteArchived.id));setConfirmDeleteArchived(null);}}/>
+      <DarkConfirmSheet show={!!confirmRestore} onClose={()=>setConfirmRestore(null)} title="Restore this crop?" message={confirmRestore?confirmRestore.name+(confirmRestore.variety?" ("+confirmRestore.variety+")":"")+" will be moved back to your active crops.":""} confirmLabel="Restore" danger={false} onConfirm={()=>{restoreCrop(confirmRestore.id);setConfirmRestore(null);}}/>
+      <DarkConfirmSheet show={!!confirmDeleteTodo} onClose={()=>setConfirmDeleteTodo(null)} title="Delete task?" message={confirmDeleteTodo?"\""+confirmDeleteTodo.text+"\" will be permanently deleted.":""} confirmLabel="Delete" danger onConfirm={()=>{deleteTodo(confirmDeleteTodo.id);setConfirmDeleteTodo(null);}}/>
+      <DarkConfirmSheet show={!!confirmFeedTodo} onClose={()=>setConfirmFeedTodo(null)} title="Mark as fed?" message={confirmFeedTodo?"Log a feeding for "+confirmFeedTodo.crop.name+(confirmFeedTodo.crop.variety?" · "+confirmFeedTodo.crop.variety:"")+" - "+confirmFeedTodo.nutrient+"?":""} confirmLabel="Log Feed" onConfirm={()=>{if(confirmFeedTodo){const sched=confirmFeedTodo.crop.feedSchedules?.[confirmFeedTodo.nutrient];const qty=sched?.qty&&sched?.unit?sched.qty+" "+sched.unit:null;const water=sched?.water&&sched?.waterUnit?sched.water+" "+sched.waterUnit:null;logFeed(confirmFeedTodo.crop.id,confirmFeedTodo.nutrient,qty,water,null);setConfirmFeedTodo(null);}}}/>
+      {expandedWeatherDay!==null&&weatherData?.forecast?.[expandedWeatherDay]&&(()=>{
+        const day=weatherData.forecast[expandedWeatherDay];
+        const isNightDay=day.info.label.toLowerCase().includes("night");
+        const heroBgDay=isNightDay?"linear-gradient(160deg,#1e1b4b,#312e81,#0e150e)":"linear-gradient(160deg,#0c2340 0%,#0e3a5c 40%,#0e150e 100%)";
+        const fmtD=(dateStr,i)=>{if(i===0)return"Tomorrow";return new Date(dateStr+"T12:00:00").toLocaleDateString("en-US",{weekday:"long"});};
+        const fmtDS=dateStr=>new Date(dateStr+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric"});
+        return(
+          <div style={{position:"fixed",inset:0,zIndex:500}} onClick={()=>setExpandedWeatherDay(null)}>
+            <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.6)"}}/>
+            <div onClick={e=>e.stopPropagation()} style={{position:"absolute",bottom:0,left:0,right:0,background:C.bg,borderRadius:"20px 20px 0 0",maxHeight:"85vh",overflowY:"auto",WebkitOverflowScrolling:"touch",paddingBottom:"max(24px,env(safe-area-inset-bottom))"}}>
+              <div style={{display:"flex",justifyContent:"center",padding:"12px 0 0"}}>
+                <div style={{width:36,height:4,borderRadius:2,background:"rgba(255,255,255,0.2)"}}/>
+              </div>
+              <div style={{background:heroBgDay,padding:"20px 18px 24px"}}>
+                {/* Header row: day name + emoji */}
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+                  <div>
+                    <div style={{fontSize:"1.3rem",fontWeight:700,color:"white"}}>{fmtD(day.date,expandedWeatherDay)}</div>
+                    <div style={{fontSize:"0.78rem",color:"rgba(186,230,253,0.45)",marginTop:2}}>{fmtDS(day.date)} · {day.info.label}</div>
+                  </div>
+                  <div style={{fontSize:"3rem",lineHeight:1}}>{day.info.emoji}</div>
+                </div>
+                {/* H / L / Rain — large and prominent */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:16}}>
+                  <div style={{background:"rgba(255,255,255,0.1)",borderRadius:"14px",padding:"16px 10px",backdropFilter:"blur(4px)",textAlign:"center"}}>
+                    <div style={{fontSize:"0.58rem",fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"rgba(186,230,253,0.45)",marginBottom:8}}>High</div>
+                    <div style={{fontSize:"2.2rem",fontWeight:800,color:"#fb923c",lineHeight:1}}>{Math.round(day.high)}°</div>
+                  </div>
+                  <div style={{background:"rgba(255,255,255,0.1)",borderRadius:"14px",padding:"16px 10px",backdropFilter:"blur(4px)",textAlign:"center"}}>
+                    <div style={{fontSize:"0.58rem",fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"rgba(186,230,253,0.45)",marginBottom:8}}>Low</div>
+                    <div style={{fontSize:"2.2rem",fontWeight:800,color:"#93c5fd",lineHeight:1}}>{Math.round(day.low)}°</div>
+                  </div>
+                  <div style={{background:"rgba(255,255,255,0.1)",borderRadius:"14px",padding:"16px 10px",backdropFilter:"blur(4px)",textAlign:"center"}}>
+                    <div style={{fontSize:"0.58rem",fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"rgba(186,230,253,0.45)",marginBottom:8}}>Rain</div>
+                    <div style={{fontSize:"2.2rem",fontWeight:800,color:day.precipProb>30?"#60a5fa":"rgba(255,255,255,0.5)",lineHeight:1}}>{day.precipProb||0}%</div>
+                  </div>
+                </div>
+                {/* Summary */}
+                {day.summary&&<div style={{fontSize:"0.82rem",color:"rgba(186,230,253,0.6)",lineHeight:1.6,fontStyle:"italic"}}>{day.summary}</div>}
+              </div>
+              {/* Hourly */}
+              {day.hours&&day.hours.length>0&&(
+                <div style={{padding:"16px 16px"}}>
+                  <div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"rgba(134,239,172,0.45)",marginBottom:10}}>Hourly Forecast</div>
+                  <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+                    <div style={{display:"flex",gap:8,paddingBottom:8,minWidth:"max-content"}}>
+                      {day.hours.filter(h=>h.hour>=6).map(h=>(
+                        <div key={h.hour} style={{background:C.bgCard,borderRadius:"10px",padding:"10px",textAlign:"center",minWidth:"52px",border:"1px solid rgba(255,255,255,0.07)"}}>
+                          <div style={{fontSize:"0.62rem",color:"rgba(232,245,233,0.4)",fontWeight:600,marginBottom:4}}>{h.hour===12?"12pm":h.hour<12?`${h.hour}am`:h.hour===0?"12am":`${h.hour-12}pm`}</div>
+                          <div style={{fontSize:"0.9rem",marginBottom:2}}>{decodeWMO(h.code).emoji}</div>
+                          <div style={{fontSize:"0.82rem",fontWeight:700,color:"white"}}>{Math.round(h.temp)}°</div>
+                          <div style={{fontSize:"0.62rem",color:"rgba(186,230,253,0.5)",marginTop:2}}>{h.humidity}%</div>
+                          {h.precip>10&&<div style={{fontSize:"0.62rem",color:"#93c5fd",marginTop:1}}>☔{h.precip}%</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+      <SettingsPanel show={view==="settings"} settings={settings} locations={locations} locationMeta={locationMeta} crops={crops}
         user={user} syncing={syncing}
-        onSave={(s,locs)=>{setSettings(p=>({...p,...s}));setLocations(locs);setView("dashboard");}}
+        onSave={(s,locs,locMeta)=>{setSettings(p=>({...p,...s}));setLocations(locs);setLocationMeta(locMeta);setView("dashboard");}}
         onSignOut={async()=>{
           await sb.auth.signOut();
           ["garden:settings","garden:locations","garden:crops","garden:todos","garden:nutrients","garden:cropNames","garden:varieties"].forEach(k=>localStorage.removeItem(k));
