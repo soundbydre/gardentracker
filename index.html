@@ -1827,7 +1827,7 @@ function LocationActionSheet({show,location,crops,nutrients,sort,onSortChange,on
         </div>
       </div>
     )}
-    <FeedAllSheet show={showFeedAll} location={location} crops={locCrops} nutrients={nutrients} onFeedAll={onFeedAll} onClose={()=>setShowFeedAll(false)}/>
+    <FeedAllSheet show={showFeedAll} location={location} crops={locCrops} nutrients={nutrients} onFeedAll={(nutrient,qty,water)=>onFeedAll(locCrops.map(c=>c.id),nutrient,qty,water)} onClose={()=>setShowFeedAll(false)}/>
     </>
   );
 }
@@ -1963,7 +1963,7 @@ function LocationPanel({show,location,crops,nutrients,onClose,onCropTap,onAddCro
       </div>
     </Panel>
     <ConfirmSheet show={confirmWaterAll} title="Water all crops?" message={`This will log a watering for all ${locCrops.length} crop${locCrops.length!==1?"s":""} in ${location}.`} confirmLabel="Water All" onConfirm={()=>{onWaterAll(locCrops.map(c=>c.id));setConfirmWaterAll(false);}} onCancel={()=>setConfirmWaterAll(false)}/>
-    <FeedAllSheet show={showFeedAll} location={location} crops={locCrops} nutrients={nutrients} onFeedAll={onFeedAll} onClose={()=>setShowFeedAll(false)}/>
+    <FeedAllSheet show={showFeedAll} location={location} crops={locCrops} nutrients={nutrients} onFeedAll={(nutrient,qty,water)=>onFeedAll(locCrops.map(c=>c.id),nutrient,qty,water)} onClose={()=>setShowFeedAll(false)}/>
     </>
   );
 }
