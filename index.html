@@ -2076,17 +2076,17 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFe
       });
       if(c.successionDays){
         const groupKey=`${c.name}::${c.variety}`;
-        if(seenSuccession.has(groupKey)) return; // already added a task for this group
-        // Find the most recently started crop with the same name+variety
+        if(seenSuccession.has(groupKey)) return;
         const sameCrops=(crops||[]).filter(x=>!x.archived&&x.name===c.name&&x.variety===c.variety&&x.successionDays&&Number(x.successionDays)===Number(c.successionDays)&&x.seedDate);
         const latestSeedDate=sameCrops.map(x=>x.seedDate).sort().pop()||c.seedDate;
+        const oldestCrop=sameCrops.sort((a,b)=>a.seedDate.localeCompare(b.seedDate))[0]||c;
         const nextSowDate=succDate(latestSeedDate,c.successionDays);
         const diff=daysUntil(nextSowDate);
         if(diff!==null&&(diff<=7||diff<0)){
           seenSuccession.add(groupKey);
           const urgency=diff<0?"overdue":diff===0?"overdue":"soon";
           const sub=diff<0?`${Math.abs(diff)}d overdue - sow now!`:diff===0?"Sow today!":`Sow in ${diff}d`;
-          tasks.push({id:`suc-${c.id}`,type:"suc",crop:c,nutrient:null,urgency,sub,due:nextSowDate,daysOverdue:diff<0?Math.abs(diff):0});
+          tasks.push({id:`suc-${oldestCrop.id}`,type:"suc",crop:oldestCrop,nutrient:null,urgency,sub,due:nextSowDate,daysOverdue:diff<0?Math.abs(diff):0});
         }
       }
     });
@@ -3420,10 +3420,20 @@ function App() {
   const toggleTodo=id=>setTodos(ts=>ts.map(t=>t.id===id?{...t,done:!t.done}:t));
   const deleteTodo=id=>setTodos(ts=>ts.filter(t=>t.id!==id));
 
+  const seenSuccBadge=new Set();
   const taskCount=active.reduce((acc,c)=>{
     const s=c.feedSchedules||{};const fl=c.feedLog||[];
     const overdueFeeds=Object.entries(s).filter(([n,d])=>{const l=[...fl].reverse().find(f=>f.nutrient===n);return l&&daysAgo(l.date)>=scheduleDays(d);}).length;
-    const ss=c.successionDays&&c.seedDate&&daysUntil(succDate(c.seedDate,c.successionDays))<=0?1:0;
+    let ss=0;
+    if(c.successionDays&&c.seedDate){
+      const groupKey=`${c.name}::${c.variety}`;
+      if(!seenSuccBadge.has(groupKey)){
+        seenSuccBadge.add(groupKey);
+        const sameCrops=active.filter(x=>x.name===c.name&&x.variety===c.variety&&x.successionDays&&Number(x.successionDays)===Number(c.successionDays)&&x.seedDate);
+        const latestSeedDate=sameCrops.map(x=>x.seedDate).sort().pop()||c.seedDate;
+        if(daysUntil(succDate(latestSeedDate,c.successionDays))<=7) ss=1;
+      }
+    }
     return acc+overdueFeeds+ss;
   },0)+todos.filter(t=>!t.done).length;
 
@@ -3540,7 +3550,13 @@ function App() {
       <ReportPanel show={view==="report"} crops={crops} onRestore={restoreCrop} onDeleteCrop={id=>{setCrops(cs=>cs.filter(c=>c.id!==id));}} onSettings={()=>setView("settings")} confirmDeleteArchived={confirmDeleteArchived} setConfirmDeleteArchived={setConfirmDeleteArchived} confirmRestore={confirmRestore} setConfirmRestore={setConfirmRestore} onClose={()=>setView("dashboard")}/>
 
       {/* App-level sheets — outside panel stacking contexts, always above nav */}
-      <DarkConfirmSheet show={!!confirmDeleteSucc} onClose={()=>setConfirmDeleteSucc(null)} title="Remove succession schedule?" message={confirmDeleteSucc?`This will turn off succession sowing for ${confirmDeleteSucc.crop.name}${confirmDeleteSucc.crop.variety?` · ${confirmDeleteSucc.crop.variety}`:""}. The existing crop will not be affected.`:""} confirmLabel="Remove Schedule" danger onConfirm={()=>{setCrops(cs=>cs.map(c=>c.id===confirmDeleteSucc.crop.id?{...c,successionDays:null}:c));setConfirmDeleteSucc(null);}}/>
+      <DarkConfirmSheet show={!!confirmDeleteSucc} onClose={()=>setConfirmDeleteSucc(null)} title="Remove succession schedule?" message={confirmDeleteSucc?`This will turn off succession sowing for ${confirmDeleteSucc.crop.name}${confirmDeleteSucc.crop.variety?` · ${confirmDeleteSucc.crop.variety}`:""}. The existing crop will not be affected.`:""} confirmLabel="Remove Schedule" danger onConfirm={()=>{
+        if(confirmDeleteSucc){
+          const {name,variety}=confirmDeleteSucc.crop;
+          setCrops(cs=>cs.map(c=>c.name===name&&c.variety===variety?{...c,successionDays:null}:c));
+          setConfirmDeleteSucc(null);
+        }
+      }}/>
       <DarkConfirmSheet show={!!confirmDeleteArchived} onClose={()=>setConfirmDeleteArchived(null)} title="Delete crop?" message={confirmDeleteArchived?confirmDeleteArchived.name+(confirmDeleteArchived.variety?" ("+confirmDeleteArchived.variety+")":"")+" will be permanently deleted. This cannot be undone.":""} confirmLabel="Delete" danger={true} onConfirm={()=>{setCrops(cs=>cs.filter(c=>c.id!==confirmDeleteArchived.id));setConfirmDeleteArchived(null);}}/>
       <DarkConfirmSheet show={!!confirmRestore} onClose={()=>setConfirmRestore(null)} title="Restore this crop?" message={confirmRestore?confirmRestore.name+(confirmRestore.variety?" ("+confirmRestore.variety+")":"")+" will be moved back to your active crops.":""} confirmLabel="Restore" danger={false} onConfirm={()=>{restoreCrop(confirmRestore.id);setConfirmRestore(null);}}/>
       <DarkConfirmSheet show={!!confirmDeleteTodo} onClose={()=>setConfirmDeleteTodo(null)} title="Delete task?" message={confirmDeleteTodo?"\""+confirmDeleteTodo.text+"\" will be permanently deleted.":""} confirmLabel="Delete" danger onConfirm={()=>{deleteTodo(confirmDeleteTodo.id);setConfirmDeleteTodo(null);}}/>
