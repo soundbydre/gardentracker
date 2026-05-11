@@ -804,7 +804,7 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,containerSize
       daysToMaturity:f.daysToMaturity?Number(f.daysToMaturity):null,
       id:initial?.id||uid("crop"),
       color:initial?.color||null,
-      stageHistory:initial?.stageHistory||[{stage:f.stage||"Seed",date:f.seedDate||now}],
+      stageHistory:initial?.stageHistory||[{stage:f.stage||"Seed",date:f.seedDate||now,inContainer:f.inContainer||false,containerSize:f.containerSize||null}],
       waterLog:initial?.waterLog||[],
     };
     setSaved(true);
@@ -1120,10 +1120,50 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
 
   const buildLog=()=>{
     const entries=[];
-    (crop.notes||[]).forEach((n,i)=>entries.push({type:n.auto?"auto":"note",date:n.date,data:n,idx:i}));
+    (crop.notes||[]).forEach((n,i)=>{
+      // Skip auto notes covered by lifecycle entries
+      if(n.auto&&(
+        n.text?.startsWith("Stage changed to ")||
+        n.text?.startsWith("Seed germinated")||
+        n.text?.startsWith("Transplanted from")
+      )) return;
+      entries.push({type:n.auto?"auto":"note",date:n.date,data:n,idx:i});
+    });
     (crop.feedLog||[]).forEach((f,i)=>entries.push({type:"feed",date:f.date,data:f,idx:i}));
     (crop.waterLog||[]).forEach((w,i)=>entries.push({type:"water",date:w.date,data:w,idx:i}));
-    return entries.sort((a,b)=>new Date(b.date)-new Date(a.date));
+    (crop.harvests||[]).forEach((h,i)=>entries.push({type:"harvest",date:h.date,data:h,idx:i}));
+    // Lifecycle markers — derived from crop data, not stored separately
+    if(crop.seedDate){
+      const sowLabel=crop.startType==="indoor"?"Started indoors":crop.startType==="clone"?"Clone/cutting acquired":"Sown";
+      const firstEntry=(crop.stageHistory||[])[0];
+      const startContainer=firstEntry?.inContainer&&firstEntry?.containerSize?`🪴 ${firstEntry.containerSize}`:firstEntry?.inContainer?"🪴 Container":null;
+      const sowDetail=[crop.startType==="indoor"?crop.notes?.find(n=>n.auto&&n.text?.startsWith("Transplanted from"))?.text?.match(/from (.+?) to/)?.[1]||crop.location:crop.location,startContainer].filter(Boolean).join(" · ")||null;
+      entries.push({type:"lifecycle",date:crop.seedDate,data:{emoji:"🌱",label:sowLabel,detail:sowDetail?`📍 ${sowDetail}`:null},idx:-1});
+    }
+    if(crop.startType==="indoor"&&crop.transplantDate){
+      const prevLoc=crop.notes?.find(n=>n.auto&&n.text?.startsWith("Transplanted from"))?.text?.match(/from (.+?) to/)?.[1]||null;
+      const transplantEntry=(crop.stageHistory||[]).find(s=>s.transplant);
+      const tContainer=transplantEntry?.inContainer&&transplantEntry?.containerSize?`🪴 ${transplantEntry.containerSize}`:transplantEntry?.inContainer?"🪴 Container":null;
+      const tDetail=[prevLoc&&`From ${prevLoc}`,crop.location&&`→ ${crop.location}`,tContainer].filter(Boolean).join(" · ");
+      entries.push({type:"lifecycle",date:crop.transplantDate,data:{emoji:"🌿",label:"Transplanted outdoors",detail:tDetail||null},idx:-2});
+    }
+    (crop.stageHistory||[]).forEach((s,i)=>{
+      const stageEmoji={Seed:"🌱",Seedling:"🌿",Vegetative:"🍃",Flowering:"🌸",Fruiting:"🍅",Harvesting:"🌾",Done:"✓",Lost:"✗"};
+      if(i===0) return; // skip initial entry
+      if(s.stage==="Done"||s.stage==="Lost") return;
+      if(s.transplant) return; // transplants handled separately
+      if(s.stage===(crop.stageHistory[i-1]?.stage)) return; // skip duplicate
+      const prevEntry=crop.stageHistory[i-1];
+      const containerChanged=s.inContainer!==prevEntry?.inContainer||s.containerSize!==prevEntry?.containerSize;
+      const containerDetail=s.inContainer&&s.containerSize?`🪴 ${s.containerSize}`:s.inContainer?"🪴 Container":null;
+      const detail=containerChanged&&containerDetail?containerDetail:null;
+      entries.push({type:"lifecycle",date:s.date,data:{emoji:stageEmoji[s.stage]||"📍",label:`Entered ${s.stage} stage`,detail},idx:-10-i});
+    });
+    if(crop.archived&&(crop.stage==="Done"||crop.stage==="Lost")){
+      const lastStage=[...(crop.stageHistory||[])].reverse().find(s=>s.stage===crop.stage);
+      if(lastStage) entries.push({type:"lifecycle",date:lastStage.date,data:{emoji:crop.stage==="Done"?"✓":"✗",label:crop.stage==="Done"?"Marked as done":"Marked as lost",detail:crop.finalNote||null,isDone:crop.stage==="Done"},idx:-20});
+    }
+    return entries.sort((a,b)=>parseDate(b.date)-parseDate(a.date));
   };
   const logEntries=buildLog();
 
@@ -1362,10 +1402,10 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
             </div>
             {logEntries.length===0&&<div style={{textAlign:"center",padding:"2rem 0",color:"rgba(232,245,233,0.2)",fontStyle:"italic"}}>Nothing logged yet.</div>}
             {logEntries.map((entry,i)=>{
-              const isFeed=entry.type==="feed";const isWater=entry.type==="water";const isRain=isWater&&entry.data?.source==="rain";const isAuto=entry.type==="auto";const isNote=entry.type==="note";
-              const borderColor=isFeed?"#f59e0b":isRain?"#60a5fa":isWater?"#3b82f6":isAuto?C.green:"#8b5cf6";
-              const typeLabel=isFeed?"Feed":isRain?"Rainfall":isWater?"Water":isAuto?"Auto":"Note";
-              const typeLabelColor=isFeed?"#fbbf24":isRain?"#93c5fd":isWater?"#60a5fa":isAuto?C.green:"#a78bfa";
+              const isFeed=entry.type==="feed";const isWater=entry.type==="water";const isRain=isWater&&entry.data?.source==="rain";const isAuto=entry.type==="auto";const isNote=entry.type==="note";const isHarvest=entry.type==="harvest";const isLifecycle=entry.type==="lifecycle";
+              const borderColor=isFeed?"#f59e0b":isRain?"#60a5fa":isWater?"#3b82f6":isAuto?C.green:isHarvest?"#a78bfa":isLifecycle?"rgba(255,255,255,0.2)":"#8b5cf6";
+              const typeLabel=isFeed?"Feed":isRain?"Rainfall":isWater?"Water":isAuto?"Auto":isHarvest?"Harvest":isLifecycle?"Lifecycle":"Note";
+              const typeLabelColor=isFeed?"#fbbf24":isRain?"#93c5fd":isWater?"#60a5fa":isAuto?C.green:isHarvest?"#c4b5fd":isLifecycle?"rgba(232,245,233,0.5)":"#a78bfa";
               const isEditingNote=isNote&&editingNoteIdx===entry.idx;
               const isEditingFeed=isFeed&&editingFeedIdx===entry.idx;
               return(
@@ -1373,11 +1413,13 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
                     <span style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:typeLabelColor}}>{typeLabel}</span>
                     <div style={{display:"flex",alignItems:"center",gap:2}}>
-                      <span style={{fontSize:"0.68rem",color:"rgba(232,245,233,0.25)",marginRight:4}}>{fmtTs(entry.date)}</span>
+                      <span style={{fontSize:"0.68rem",color:"rgba(232,245,233,0.25)",marginRight:4}}>{isLifecycle?fmtDate(entry.date):fmtTs(entry.date)}</span>
                       {isNote&&!isEditingNote&&<>{actionBtn("Edit","rgba(232,245,233,0.4)",()=>{setEditingNoteIdx(entry.idx);setEditingNoteText(entry.data.text);})}{actionBtn("Delete","#ef4444",()=>setDeleteNoteIdx(entry.idx))}</>}
                       {isAuto&&actionBtn("×","rgba(232,245,233,0.25)",()=>setDeleteNoteIdx(entry.idx))}
                       {isFeed&&!isEditingFeed&&<>{actionBtn("Edit","rgba(232,245,233,0.4)",()=>{setEditingFeedIdx(entry.idx);const qp=(entry.data.qty||"").split(" ");setEditFeedData({nutrient:entry.data.nutrient||"",qty:qp[0]||"",unit:qp.slice(1).join(" ")||"tbsp",water:entry.data.water||"",intervalDays:""});})}{actionBtn("Delete","#ef4444",()=>setDeleteFeedIdx(entry.idx))}</>}
                       {isWater&&!isRain&&actionBtn("Delete","#ef4444",()=>setDeleteWaterIdx(entry.idx))}
+                      {isWater&&isRain&&actionBtn("Delete","rgba(239,68,68,0.6)",()=>setDeleteWaterIdx(entry.idx))}
+                      {isHarvest&&actionBtn("Delete","#ef4444",()=>setDeleteHarvestIdx(entry.idx))}
                     </div>
                   </div>
                   {isNote&&(isEditingNote?(
@@ -1416,6 +1458,13 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
                   ))}
                   {isWater&&isRain&&<div style={{fontSize:"0.85rem",color:"#93c5fd",fontWeight:500}}>🌧 {entry.data.amount}" rainfall{entry.data.note?` — ${entry.data.note.replace(/^🌧 [0-9."]+ rainfall/,"")}`:""}</div>}
                   {isWater&&!isRain&&<div style={{fontSize:"0.85rem",color:"#60a5fa",fontWeight:500}}>💧 Watered</div>}
+                  {isHarvest&&<div style={{fontSize:"0.85rem",color:"#c4b5fd",fontWeight:500}}>🌾 {entry.data.amount} {entry.data.unit}{entry.data.note?<span style={{color:"rgba(232,245,233,0.5)",fontWeight:400}}> — {entry.data.note}</span>:null}</div>}
+                  {isLifecycle&&(
+                    <div>
+                      <div style={{fontSize:"0.85rem",color:"rgba(232,245,233,0.7)",fontWeight:500}}>{entry.data.emoji} {entry.data.label}</div>
+                      {entry.data.detail&&<div style={{fontSize:"0.75rem",color:"rgba(232,245,233,0.4)",marginTop:3}}>{entry.data.detail}</div>}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1481,7 +1530,7 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
       <DarkConfirmSheet show={confirmDelete} onClose={()=>setConfirmDelete(false)} title="Delete crop?" message={`${crop.name}${crop.variety?` (${crop.variety})`:""} will be permanently deleted. This cannot be undone.`} confirmLabel="Delete" danger={true} onConfirm={()=>onDeleteCrop(crop.id)}/>
       <DarkConfirmSheet show={deleteNoteIdx!==null} onClose={()=>setDeleteNoteIdx(null)} title="Delete entry?" message="This log entry will be permanently deleted." confirmLabel="Delete" danger={true} onConfirm={()=>{onDeleteNote(crop.id,deleteNoteIdx);setDeleteNoteIdx(null);}}/>
       <DarkConfirmSheet show={deleteFeedIdx!==null} onClose={()=>setDeleteFeedIdx(null)} title="Delete feed entry?" message="This feed log entry will be permanently deleted." confirmLabel="Delete" danger={true} onConfirm={()=>{onDeleteFeed(crop.id,deleteFeedIdx);setDeleteFeedIdx(null);}}/>
-      <DarkConfirmSheet show={deleteWaterIdx!==null} onClose={()=>setDeleteWaterIdx(null)} title="Delete watering?" message="This watering entry will be permanently deleted." confirmLabel="Delete" danger={true} onConfirm={()=>{onDeleteWater(crop.id,deleteWaterIdx);setDeleteWaterIdx(null);}}/>
+      <DarkConfirmSheet show={deleteWaterIdx!==null} onClose={()=>setDeleteWaterIdx(null)} title={deleteWaterIdx!==null&&(crop.waterLog||[])[deleteWaterIdx]?.source==="rain"?"Delete rainfall entry?":"Delete watering?"} message={deleteWaterIdx!==null&&(crop.waterLog||[])[deleteWaterIdx]?.source==="rain"?"This auto-logged rainfall entry will be removed from the log.":"This watering entry will be permanently deleted."} confirmLabel="Delete" danger={true} onConfirm={()=>{onDeleteWater(crop.id,deleteWaterIdx);setDeleteWaterIdx(null);}}/>
       <DarkConfirmSheet show={deleteHarvestIdx!==null} onClose={()=>setDeleteHarvestIdx(null)} title="Delete harvest?" message="This harvest entry will be permanently deleted." confirmLabel="Delete" danger={true} onConfirm={()=>{onDeleteHarvest(crop.id,deleteHarvestIdx);setDeleteHarvestIdx(null);}}/>
       <DarkConfirmSheet show={!!confirmDeleteSched} onClose={()=>setConfirmDeleteSched(null)} title="Delete schedule?" message={confirmDeleteSched?`The feeding schedule for ${confirmDeleteSched} will be removed.`:""} confirmLabel="Delete" danger={true} onConfirm={()=>{onDeleteSchedule(crop.id,confirmDeleteSched);setConfirmDeleteSched(null);}}/>
 
@@ -1788,7 +1837,8 @@ function CropCard({crop,onClick,onWater}) {
   const acc=cropAccent(crop);
   const sc=STAGE_COLORS[crop.stage]||STAGE_COLORS.Seed;
   const dInStage=daysSinceStage(crop);
-  const lastWater=(crop.waterLog||[]).slice(-1)[0];
+  const manualWaterLog=(crop.waterLog||[]).filter(w=>!w.auto||w.source!=="rain");
+  const lastWater=manualWaterLog.length?manualWaterLog[manualWaterLog.length-1]:null;
   const daysWater=lastWater?daysAgo(lastWater.date):null;
   return(
     <div onClick={onClick} style={{background:"white",borderRadius:"14px",overflow:"hidden",border:`1px solid ${C.border}`,cursor:"pointer",userSelect:"none"}}>
@@ -1957,7 +2007,8 @@ function LocCard({loc,crops,sort,onLocClick,onCropClick}) {
           const acc=cropAccent(c);
           const sc=STAGE_COLORS[c.stage]||STAGE_COLORS.Seed;
           const dInStage=daysSinceStage(c);
-          const lastWater=(c.waterLog||[]).slice(-1)[0];
+          const manualWaters=(c.waterLog||[]).filter(w=>!w.auto||w.source!=="rain");
+          const lastWater=manualWaters.length?manualWaters[manualWaters.length-1]:null;
           const daysNoWater=lastWater?daysAgo(lastWater.date):null;
           const waterAlert=daysNoWater!==null&&daysNoWater>=2;
           const isLast=i===sorted.length-1;
@@ -2027,7 +2078,7 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFe
         const groupKey=`${c.name}::${c.variety}`;
         if(seenSuccession.has(groupKey)) return; // already added a task for this group
         // Find the most recently started crop with the same name+variety
-        const sameCrops=(crops||[]).filter(x=>!x.archived&&x.name===c.name&&x.variety===c.variety&&x.successionDays===c.successionDays&&x.seedDate);
+        const sameCrops=(crops||[]).filter(x=>!x.archived&&x.name===c.name&&x.variety===c.variety&&x.successionDays&&Number(x.successionDays)===Number(c.successionDays)&&x.seedDate);
         const latestSeedDate=sameCrops.map(x=>x.seedDate).sort().pop()||c.seedDate;
         const nextSowDate=succDate(latestSeedDate,c.successionDays);
         const diff=daysUntil(nextSowDate);
@@ -2944,14 +2995,12 @@ function App() {
 
     const outdoorLocs=(locMeta?Object.keys(locMeta):locations).filter(loc=>locMeta?locMeta[loc]?.outdoor===true:locationMeta[loc]?.outdoor===true);
     const cropData=cropList||crops;
-    console.log('Rain sync: outdoorLocs=',outdoorLocs,'locMeta keys=',Object.keys(locMeta||locationMeta));
-    if(!outdoorLocs.length){console.log('Rain sync: no outdoor locations, skipping');return;}
+    if(!outdoorLocs.length) return;
 
     const outdoorCrops=cropData.filter(c=>!c.archived&&outdoorLocs.includes(c.location)&&c.seedDate);
-    console.log('Rain sync: outdoorCrops=',outdoorCrops.map(c=>c.name+'/'+c.location));
-    if(!outdoorCrops.length){console.log('Rain sync: no outdoor crops, skipping');return;}
-
-    const earliestCropDate=outdoorCrops.map(c=>c.seedDate).sort()[0];
+    // For indoor-started crops, rain only counts from transplant date onwards
+    const cropOutdoorStart=c=>c.startType==="indoor"&&c.transplantDate?c.transplantDate:c.seedDate;
+    const earliestCropDate=outdoorCrops.map(c=>cropOutdoorStart(c)).filter(Boolean).sort()[0];
     const meta=locMeta||locationMeta;
     const earliestSync=outdoorLocs.reduce((min,loc)=>{
       const last=meta[loc]?.lastRainSync;
@@ -2962,20 +3011,16 @@ function App() {
     const startDate=outdoorLocs.some(loc=>!meta[loc]?.lastRainSync)
       ?earliestCropDate
       :earliestSync;
-
-    console.log('Rain sync: startDate=',startDate,'earliestCropDate=',earliestCropDate);
-    if(startDate>=today){console.log('Rain sync: already up to date');return;}
+    if(startDate>=today) return;
 
     try{
       // Use forecast API with past_days - more reliable than archive API which lags 5-7 days
       const pastDays=Math.min(92,Math.ceil((new Date()-new Date(startDate+"T00:00:00"))/86400000));
-      if(pastDays<=0){console.log('Rain sync: nothing to fetch');return;}
+      if(pastDays<=0) return;
       const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=precipitation_sum&past_days=${pastDays}&forecast_days=1&timezone=auto&precipitation_unit=inch`;
-      console.log('Rain sync: fetching with past_days=',pastDays,url);
       const res=await fetch(url);
-      if(!res.ok){console.log('Rain sync: fetch failed',res.status);return;}
+      if(!res.ok) return;
       const raw=await res.json();
-      console.log('Rain sync: got data, days=',raw?.daily?.time?.length,'precip=',raw?.daily?.precipitation_sum);
       if(!raw?.daily?.time) return;
 
       const rainByDate={};
@@ -2998,8 +3043,9 @@ function App() {
       setCrops(cs=>cs.map(c=>{
         if(!outdoorLocs.includes(c.location)||c.archived) return c;
         const existingDates=new Set((c.waterLog||[]).filter(w=>w.auto&&w.source==="rain").map(w=>w.date?.slice(0,10)));
+        const outdoorStart=c.startType==="indoor"&&c.transplantDate?c.transplantDate:c.seedDate;
         const newEntries=Object.entries(rainByDate)
-          .filter(([date])=>date>=c.seedDate&&!existingDates.has(date))
+          .filter(([date])=>date>=outdoorStart&&!existingDates.has(date))
           .map(([date,amount])=>({date:`${date}T12:00:00.000Z`,amount,unit:"in",auto:true,source:"rain",note:`🌧 ${amount}" rainfall`}));
         if(!newEntries.length) return c;
         const combined=[...(c.waterLog||[]),...newEntries].sort((a,b)=>new Date(a.date)-new Date(b.date));
@@ -3214,7 +3260,7 @@ function App() {
       // Defensive: if ID collides with an existing crop AND we're not editing it, force a new unique ID
       const existingIdx=cs.findIndex(x=>x.id===crop.id);
       const isEdit=!!(initialCropBeingEdited && initialCropBeingEdited.id===crop.id) || existingIdx>=0 && !!crop.archived;
-      const initStageHistory=[{stage:crop.stage||"Seed",date:crop.seedDate||t0}];
+      const initStageHistory=[{stage:crop.stage||"Seed",date:crop.seedDate||t0,inContainer:crop.inContainer||false,containerSize:crop.containerSize||null}];
       if(existingIdx>=0 && !isEdit){
         // Collision on add - create a new crop with a guaranteed-unique ID
         return [...cs,{...crop,id:uid("crop"),notes:[],harvests:[],feedLog:[],feedSchedules:{},stageHistory:initStageHistory,waterLog:[]}];
@@ -3226,8 +3272,8 @@ function App() {
         if(x.id!==crop.id) return x;
         if(x.stage!==crop.stage && !crop.archived){
           const isGermination=crop.stage==="Seedling" && x.stage==="Seed";
-          const stageNote={date:ts(),text:isGermination?"Seed germinated 🌱":`Stage changed to ${crop.stage}`,auto:true};
-          const sh=[...(x.stageHistory||[]),{stage:crop.stage,date:t0}];
+          const stageNote={date:t0+"T12:00:00",text:isGermination?"Seed germinated 🌱":`Stage changed to ${crop.stage}`,auto:true};
+          const sh=[...(x.stageHistory||[]),{stage:crop.stage,date:t0,inContainer:crop.inContainer||false,containerSize:crop.containerSize||null}];
           return {...crop,stageHistory:sh,notes:[...(crop.notes||[]),stageNote]};
         }
         return crop;
@@ -3339,16 +3385,27 @@ function App() {
     if(newLocs)setLocations(prev=>[...new Set([...prev,...newLocs])]);
     const noteText=`Transplanted from ${crops.find(c=>c.id===id)?.location||"?"} to ${toLoc} on ${fmtDate(date)}${inContainer&&containerSize?` · ${containerSize}`:""}`;
     const now=ts();
-    setCrops(cs=>cs.map(c=>{if(c.id!==id)return c;const note={date:now,text:noteText,auto:true};return{...c,location:toLoc,transplantDate:date,inContainer,containerSize:containerSize||"",notes:[...c.notes,note]};}));
-    setSelCrop(p=>{if(!p||p.id!==id)return p;const note={date:now,text:noteText,auto:true};return{...p,location:toLoc,transplantDate:date,inContainer,containerSize:containerSize||"",notes:[...p.notes,note]};});
+    setCrops(cs=>cs.map(c=>{
+      if(c.id!==id)return c;
+      const note={date:now,text:noteText,auto:true};
+      const transplantEntry={stage:c.stage,date,location:toLoc,inContainer,containerSize:containerSize||null,transplant:true};
+      const sh=[...(c.stageHistory||[]),transplantEntry];
+      return{...c,location:toLoc,transplantDate:date,inContainer,containerSize:containerSize||"",stageHistory:sh,notes:[...c.notes,note]};
+    }));
+    setSelCrop(p=>{
+      if(!p||p.id!==id)return p;
+      const note={date:now,text:noteText,auto:true};
+      const transplantEntry={stage:p.stage,date,location:toLoc,inContainer,containerSize:containerSize||null,transplant:true};
+      const sh=[...(p.stageHistory||[]),transplantEntry];
+      return{...p,location:toLoc,transplantDate:date,inContainer,containerSize:containerSize||"",stageHistory:sh,notes:[...p.notes,note]};
+    });
   };
   const changeStage=(id,stage,date)=>{
-    const now=ts();
     const stageDate=date||t0;
     const isGermination=stage==="Seedling";
-    const note={date:now,text:isGermination?"Seed germinated 🌱":`Stage changed to ${stage}`,auto:true};
-    setCrops(cs=>cs.map(c=>{if(c.id!==id)return c;const sh=[...(c.stageHistory||[]),{stage,date:stageDate}];return{...c,stage,stageHistory:sh,notes:[...c.notes,note]};}));
-    setSelCrop(p=>{if(!p||p.id!==id)return p;const sh=[...(p.stageHistory||[]),{stage,date:stageDate}];return{...p,stage,stageHistory:sh,notes:[...p.notes,note]};});
+    const note={date:stageDate+"T12:00:00",text:isGermination?"Seed germinated 🌱":`Stage changed to ${stage}`,auto:true};
+    setCrops(cs=>cs.map(c=>{if(c.id!==id)return c;const sh=[...(c.stageHistory||[]),{stage,date:stageDate,inContainer:c.inContainer||false,containerSize:c.containerSize||null}];return{...c,stage,stageHistory:sh,notes:[...c.notes,note]};}));
+    setSelCrop(p=>{if(!p||p.id!==id)return p;const sh=[...(p.stageHistory||[]),{stage,date:stageDate,inContainer:p.inContainer||false,containerSize:p.containerSize||null}];return{...p,stage,stageHistory:sh,notes:[...p.notes,note]};});
   };
   const addNutrient=n=>setNutrients(ns=>ns.includes(n)?ns:[...ns,n]);
   const updateSchedule=(cropId,nutrient,schedObj)=>{
@@ -3478,7 +3535,7 @@ function App() {
       <CropFormPanel show={view==="addCrop"||view==="editCrop"} initial={view==="editCrop"?editCrop:(view==="addCrop"&&editCrop?.id===null?editCrop:null)} locations={locations} cropNames={cropNames} varieties={varieties} containerSizes={containerSizes} onAddContainerSize={s=>setContainerSizes(cs=>[...new Set([...cs,s])])} onRemoveCropName={n=>setCropNames(cs=>cs.filter(x=>x!==n))} onRemoveVariety={(name,v)=>setVarieties(vs=>({...vs,[name]:(vs[name]||[]).filter(x=>x!==v)}))} onRemoveContainerSize={s=>setContainerSizes(cs=>cs.filter(x=>x!==s))} defaultLocation={view==="addCrop"&&!editCrop?selLoc:null}
         onSave={saveCrop} onClose={()=>{setEditCrop(null);setView(view==="editCrop"?"crop":"dashboard");}}/>
 
-      <TodoPanel show={view==="todo"} crops={crops} todos={todos} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} onLogFeed={logFeed} onCropTap={c=>{setSelCrop(c);setView("crop");}} onSuccessionSow={c=>{setEditCrop({...c,id:null,seedDate:todayStr(),stageHistory:[],waterLog:[],feedLog:[],harvests:[],notes:[],feedSchedules:{}});setView("addCrop");}} onRemoveSuccession={cropId=>setCrops(cs=>cs.map(c=>c.id===cropId?{...c,successionDays:null}:c))} onSettings={()=>setView("settings")} confirmDeleteSucc={confirmDeleteSucc} setConfirmDeleteSucc={setConfirmDeleteSucc} confirmFeedTodo={confirmFeedTodo} setConfirmFeedTodo={setConfirmFeedTodo} confirmDeleteTodo={confirmDeleteTodo} setConfirmDeleteTodo={setConfirmDeleteTodo} onClose={()=>setView("dashboard")}/>
+      <TodoPanel show={view==="todo"} crops={crops} todos={todos} onAddTodo={addTodo} onToggleTodo={toggleTodo} onDeleteTodo={deleteTodo} onLogFeed={logFeed} onCropTap={c=>{setSelCrop(c);setView("crop");}} onSuccessionSow={c=>{setEditCrop({...c,id:null,seedDate:todayStr(),stage:"Seed",startType:c.startType||"direct",stageHistory:[],waterLog:[],feedLog:[],harvests:[],notes:[],feedSchedules:{}});setView("addCrop");}} onRemoveSuccession={cropId=>setCrops(cs=>cs.map(c=>c.id===cropId?{...c,successionDays:null}:c))} onSettings={()=>setView("settings")} confirmDeleteSucc={confirmDeleteSucc} setConfirmDeleteSucc={setConfirmDeleteSucc} confirmFeedTodo={confirmFeedTodo} setConfirmFeedTodo={setConfirmFeedTodo} confirmDeleteTodo={confirmDeleteTodo} setConfirmDeleteTodo={setConfirmDeleteTodo} onClose={()=>setView("dashboard")}/>
       <WeatherPanel show={view==="weather"} weatherData={weatherData} location={weatherLocation} loading={weatherLoading} error={weatherError} onRefresh={()=>settings?.zip&&loadWeather(settings.zip)} onSettings={()=>setView("settings")} expandedDay={expandedWeatherDay} setExpandedDay={setExpandedWeatherDay} onClose={()=>setView("dashboard")}/>
       <ReportPanel show={view==="report"} crops={crops} onRestore={restoreCrop} onDeleteCrop={id=>{setCrops(cs=>cs.filter(c=>c.id!==id));}} onSettings={()=>setView("settings")} confirmDeleteArchived={confirmDeleteArchived} setConfirmDeleteArchived={setConfirmDeleteArchived} confirmRestore={confirmRestore} setConfirmRestore={setConfirmRestore} onClose={()=>setView("dashboard")}/>
 
