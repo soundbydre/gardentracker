@@ -20,7 +20,7 @@
   html, body, #root { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; max-width: 100vw; font-family: "Figtree", sans-serif; position: fixed; top: 0; left: 0; right: 0; bottom: 0; }
   body { background: #0e150e; overscroll-behavior: none; }
   * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
-  input, select, button, textarea { font-family: "Figtree", sans-serif; max-width: 100%; }
+  input, select, button, textarea { font-family: "Figtree", sans-serif; max-width: 100%; font-size: 16px; }
   ::-webkit-scrollbar { width: 3px; }
   ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 2px; }
   input:focus, select:focus, textarea:focus { outline: 2px solid #4ade80; outline-offset: -1px; }
@@ -1087,7 +1087,7 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
   const [showStagePicker,setShowStagePicker]=useState(false);
   const [finalNote,setFinalNote]=useState("");
   const [editingFeedIdx,setEditingFeedIdx]=useState(null);
-  const [editFeedData,setEditFeedData]=useState({nutrient:"",qty:"",unit:"tbsp",water:"",intervalDays:""});
+  const [editFeedData,setEditFeedData]=useState({nutrient:"",qty:"",unit:"tbsp",water:"",intervalDays:"",date:"",time:""});
   const [deleteFeedIdx,setDeleteFeedIdx]=useState(null);
   const [deleteWaterIdx,setDeleteWaterIdx]=useState(null);
   const [editingSchedKey,setEditingSchedKey]=useState(null);
@@ -1175,7 +1175,7 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
     return `${Math.round(top[1]*100)/100} ${top[0]}`;
   })();
 
-  const iS={background:"rgba(255,255,255,0.07)",border:"1.5px solid rgba(255,255,255,0.12)",borderRadius:"10px",padding:"9px 12px",fontSize:"0.88rem",color:"white",outline:"none"};
+  const iS={background:"rgba(255,255,255,0.07)",border:"1.5px solid rgba(255,255,255,0.12)",borderRadius:"10px",padding:"9px 12px",fontSize:"16px",color:"white",outline:"none"};
   const statStyle={background:C.bgCard,borderRadius:"12px",padding:"12px 12px 10px",border:"1px solid rgba(255,255,255,0.06)"};
 
   const FUNITS=["tsp","tbsp","cup","fl oz","ml","L","oz","lb","g"];
@@ -1416,7 +1416,7 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
                       <span style={{fontSize:"0.68rem",color:"rgba(232,245,233,0.25)",marginRight:4}}>{isLifecycle?fmtDate(entry.date):fmtTs(entry.date)}</span>
                       {isNote&&!isEditingNote&&<>{actionBtn("Edit","rgba(232,245,233,0.4)",()=>{setEditingNoteIdx(entry.idx);setEditingNoteText(entry.data.text);})}{actionBtn("Delete","#ef4444",()=>setDeleteNoteIdx(entry.idx))}</>}
                       {isAuto&&actionBtn("×","rgba(232,245,233,0.25)",()=>setDeleteNoteIdx(entry.idx))}
-                      {isFeed&&!isEditingFeed&&<>{actionBtn("Edit","rgba(232,245,233,0.4)",()=>{setEditingFeedIdx(entry.idx);const qp=(entry.data.qty||"").split(" ");setEditFeedData({nutrient:entry.data.nutrient||"",qty:qp[0]||"",unit:qp.slice(1).join(" ")||"tbsp",water:entry.data.water||"",intervalDays:""});})}{actionBtn("Delete","#ef4444",()=>setDeleteFeedIdx(entry.idx))}</>}
+                      {isFeed&&!isEditingFeed&&<>{actionBtn("Edit","rgba(232,245,233,0.4)",()=>{setEditingFeedIdx(entry.idx);const qp=(entry.data.qty||"").split(" ");const d=new Date(entry.data.date);const dateStr=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;const timeStr=`${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;setEditFeedData({nutrient:entry.data.nutrient||"",qty:qp[0]||"",unit:qp.slice(1).join(" ")||"tbsp",water:entry.data.water||"",intervalDays:"",date:dateStr,time:timeStr});})}{actionBtn("Delete","#ef4444",()=>setDeleteFeedIdx(entry.idx))}</>}
                       {isWater&&!isRain&&actionBtn("Delete","#ef4444",()=>setDeleteWaterIdx(entry.idx))}
                       {isWater&&isRain&&actionBtn("Delete","rgba(239,68,68,0.6)",()=>setDeleteWaterIdx(entry.idx))}
                       {isHarvest&&actionBtn("Delete","#ef4444",()=>setDeleteHarvestIdx(entry.idx))}
@@ -1437,13 +1437,23 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
                       <input value={editFeedData.nutrient} onChange={e=>setEditFeedData(d=>({...d,nutrient:e.target.value}))} placeholder="Nutrient" style={iS}/>
                       <div style={{display:"flex",gap:6}}><input type="number" min="0" step="any" value={editFeedData.qty} onChange={e=>setEditFeedData(d=>({...d,qty:e.target.value}))} placeholder="Qty" style={{...iS,flex:1}}/><select value={editFeedData.unit} onChange={e=>setEditFeedData(d=>({...d,unit:e.target.value}))} style={{...iS,padding:"9px 8px"}}>{FUNITS.map(u=><option key={u} style={{background:"#182218"}}>{u}</option>)}</select></div>
                       <input value={editFeedData.water} onChange={e=>setEditFeedData(d=>({...d,water:e.target.value}))} placeholder="Water (e.g. 1 gal)" style={iS}/>
+                      <div style={{display:"flex",gap:6}}>
+                        <input type="date" value={editFeedData.date} onChange={e=>setEditFeedData(d=>({...d,date:e.target.value}))} style={{...iS,flex:1}}/>
+                        <input type="time" value={editFeedData.time} onChange={e=>setEditFeedData(d=>({...d,time:e.target.value}))} style={{...iS,flex:1}}/>
+                      </div>
                       <div style={{display:"flex",alignItems:"center",gap:8,background:"rgba(245,158,11,0.08)",borderRadius:"8px",padding:"8px 10px",border:"1px solid rgba(245,158,11,0.25)"}}>
                         <span style={{fontSize:"0.78rem",color:"#fbbf24",flexShrink:0,fontWeight:600}}>🌿 Repeat every</span>
-                        <input type="number" min="1" value={editFeedData.intervalDays||""} onChange={e=>setEditFeedData(d=>({...d,intervalDays:e.target.value}))} placeholder="-" style={{width:50,padding:"4px 8px",borderRadius:"6px",border:"1px solid rgba(255,255,255,0.15)",background:"rgba(255,255,255,0.06)",fontSize:"0.85rem",color:"white",outline:"none",textAlign:"center"}}/>
+                        <input type="number" min="1" value={editFeedData.intervalDays||""} onChange={e=>setEditFeedData(d=>({...d,intervalDays:e.target.value}))} placeholder="-" style={{width:50,padding:"4px 8px",borderRadius:"6px",border:"1px solid rgba(255,255,255,0.15)",background:"rgba(255,255,255,0.06)",fontSize:"16px",color:"white",outline:"none",textAlign:"center"}}/>
                         <span style={{fontSize:"0.78rem",color:"#fbbf24"}}>days</span>
                       </div>
                       <div style={{display:"flex",gap:6}}>
-                        <button onClick={()=>{const n=titleCase(editFeedData.nutrient.trim());onEditFeed(crop.id,entry.idx,{nutrient:n,qty:editFeedData.qty?`${editFeedData.qty} ${editFeedData.unit}`:null,water:editFeedData.water||null});if(editFeedData.intervalDays&&Number(editFeedData.intervalDays)>0){const prev=schedules[n]||{};onUpdateSchedule(crop.id,n,{...prev,days:Number(editFeedData.intervalDays),qty:editFeedData.qty||prev.qty||"",unit:editFeedData.unit||prev.unit||"tbsp",water:editFeedData.water||prev.water||"",waterUnit:"gal"});}setEditingFeedIdx(null);}} style={{flex:1,background:C.green,color:"white",border:"none",borderRadius:"8px",padding:"8px",fontWeight:700,fontSize:"0.82rem",cursor:"pointer"}}>Save</button>
+                        <button onClick={()=>{
+                          const n=titleCase(editFeedData.nutrient.trim());
+                          const newDate=editFeedData.date&&editFeedData.time?`${editFeedData.date}T${editFeedData.time}:00`:editFeedData.date?`${editFeedData.date}T12:00:00`:entry.data.date;
+                          onEditFeed(crop.id,entry.idx,{nutrient:n,qty:editFeedData.qty?`${editFeedData.qty} ${editFeedData.unit}`:null,water:editFeedData.water||null,date:newDate});
+                          if(editFeedData.intervalDays&&Number(editFeedData.intervalDays)>0){const prev=schedules[n]||{};onUpdateSchedule(crop.id,n,{...prev,days:Number(editFeedData.intervalDays),qty:editFeedData.qty||prev.qty||"",unit:editFeedData.unit||prev.unit||"tbsp",water:editFeedData.water||prev.water||"",waterUnit:"gal"});}
+                          setEditingFeedIdx(null);
+                        }} style={{flex:1,background:C.green,color:"white",border:"none",borderRadius:"8px",padding:"8px",fontWeight:700,fontSize:"0.82rem",cursor:"pointer"}}>Save</button>
                         <button onClick={()=>setEditingFeedIdx(null)} style={{flex:1,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"8px",padding:"8px",fontSize:"0.82rem",color:"rgba(232,245,233,0.5)",cursor:"pointer"}}>Cancel</button>
                       </div>
                     </div>
@@ -1827,7 +1837,7 @@ function LocationActionSheet({show,location,crops,nutrients,sort,onSortChange,on
         </div>
       </div>
     )}
-    <FeedAllSheet show={showFeedAll} location={location} crops={locCrops} nutrients={nutrients} onFeedAll={(nutrient,qty,water)=>onFeedAll(locCrops.map(c=>c.id),nutrient,qty,water)} onClose={()=>setShowFeedAll(false)}/>
+    <FeedAllSheet show={showFeedAll} location={location} crops={locCrops} nutrients={nutrients} onFeedAll={(nutrient,qty,water,date)=>onFeedAll(locCrops.map(c=>c.id),nutrient,qty,water,date)} onClose={()=>setShowFeedAll(false)}/>
     </>
   );
 }
@@ -1867,11 +1877,19 @@ function FeedAllSheet({show,location,crops,nutrients,onFeedAll,onClose}) {
   const [waterUnit,setWaterUnit]=useState("gal");
   const [showDrop,setShowDrop]=useState(false);
   const [confirming,setConfirming]=useState(false);
+  const [feedDate,setFeedDate]=useState(todayStr());
+  const [feedTime,setFeedTime]=useState(()=>{const n=new Date();return`${String(n.getHours()).padStart(2,"0")}:${String(n.getMinutes()).padStart(2,"0")}`;});
   const FUNITS=["tsp","tbsp","cup","fl oz","ml","L","oz","lb","g"];
   const WUNITS=["fl oz","cup","pt","qt","gal","ml","L"];
   const allNutrients=[...new Set([...["Fish emulsion 2-3-1","Tomato tone 3-4-6","Kelp meal","Compost tea","Worm castings","Blood meal","Bone meal","Balanced 10-10-10"],...(nutrients||[])])];
   const filtered=input.trim()?allNutrients.filter(n=>n.toLowerCase().includes(input.toLowerCase())):allNutrients;
-  const reset=()=>{setInput("");setQty("");setIsLiquid(false);setWaterQty("");setConfirming(false);};
+  const getFeedDate=()=>feedDate&&feedTime?`${feedDate}T${feedTime}:00`:feedDate?`${feedDate}T12:00:00`:ts();
+  const reset=()=>{
+    const n=new Date();
+    setInput("");setQty("");setIsLiquid(false);setWaterQty("");setConfirming(false);
+    setFeedDate(todayStr());
+    setFeedTime(`${String(n.getHours()).padStart(2,"0")}:${String(n.getMinutes()).padStart(2,"0")}`);
+  };
   useEffect(()=>{if(!show)reset();},[show]);
   const iStyle={background:"rgba(255,255,255,0.07)",border:"1.5px solid rgba(255,255,255,0.12)",borderRadius:"10px",padding:"11px 14px",fontSize:"0.92rem",color:"white",outline:"none"};
   if(!show) return null;
@@ -1884,10 +1902,11 @@ function FeedAllSheet({show,location,crops,nutrients,onFeedAll,onClose}) {
         <div style={{background:"rgba(245,158,11,0.1)",border:"1px solid rgba(245,158,11,0.25)",borderRadius:"12px",padding:"14px",marginBottom:20}}>
           <div style={{fontSize:"0.82rem",fontWeight:700,color:"#fbbf24",marginBottom:4}}>Apply to all {crops?.length||0} crops in {location}</div>
           <div style={{fontSize:"0.9rem",color:"rgba(232,245,233,0.85)"}}><strong>{input.trim()}</strong>{qty?` · ${qty} ${unit}`:""}{isLiquid&&waterQty?` · 💧 ${waterQty} ${waterUnit}`:""}</div>
+          <div style={{fontSize:"0.78rem",color:"rgba(232,245,233,0.45)",marginTop:6}}>📅 {feedDate} · {feedTime}</div>
         </div>
         <div style={{display:"flex",gap:"10px"}}>
           <button onClick={()=>setConfirming(false)} style={{flex:1,padding:"13px",borderRadius:"12px",border:"1px solid rgba(255,255,255,0.1)",background:"rgba(255,255,255,0.06)",fontSize:"0.9rem",fontWeight:600,color:"rgba(232,245,233,0.55)",cursor:"pointer"}}>Back</button>
-          <button onClick={()=>{onFeedAll&&onFeedAll(input.trim(),qty?`${qty} ${unit}`:null,isLiquid&&waterQty?`${waterQty} ${waterUnit}`:null);reset();onClose();}} style={{flex:1,padding:"13px",borderRadius:"12px",border:"none",background:"#f59e0b",fontSize:"0.9rem",fontWeight:700,color:"white",cursor:"pointer"}}>🌿 Feed All</button>
+          <button onClick={()=>{onFeedAll&&onFeedAll(input.trim(),qty?`${qty} ${unit}`:null,isLiquid&&waterQty?`${waterQty} ${waterUnit}`:null,getFeedDate());reset();onClose();}} style={{flex:1,padding:"13px",borderRadius:"12px",border:"none",background:"#f59e0b",fontSize:"0.9rem",fontWeight:700,color:"white",cursor:"pointer"}}>🌿 Feed All</button>
         </div>
       </div>
     </div>
@@ -1929,6 +1948,13 @@ function FeedAllSheet({show,location,crops,nutrients,onFeedAll,onClose}) {
             <input type="number" min="0" step="any" value={waterQty} onChange={e=>setWaterQty(e.target.value)} placeholder="e.g. 1" style={{...iStyle,flex:1}}/>
             <select value={waterUnit} onChange={e=>setWaterUnit(e.target.value)} style={{...iStyle,padding:"11px 10px"}}>{WUNITS.map(u=><option key={u} style={{background:"#182218"}}>{u}</option>)}</select>
           </div>}
+          <div>
+            <div style={{fontSize:"0.72rem",fontWeight:600,color:"rgba(232,245,233,0.45)",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.08em"}}>Date &amp; Time</div>
+            <div style={{display:"flex",gap:8}}>
+              <input type="date" value={feedDate} onChange={e=>setFeedDate(e.target.value)} style={{...iStyle,flex:1}}/>
+              <input type="time" value={feedTime} onChange={e=>setFeedTime(e.target.value)} style={{...iStyle,flex:1}}/>
+            </div>
+          </div>
           <button onClick={()=>setConfirming(true)} disabled={!input.trim()} style={{background:!input.trim()?"rgba(255,255,255,0.06)":"#f59e0b",color:!input.trim()?"rgba(232,245,233,0.25)":"white",border:"none",borderRadius:"12px",padding:"14px",fontSize:"0.92rem",fontWeight:700,cursor:input.trim()?"pointer":"not-allowed"}}>Review & Confirm</button>
         </div>
       </div>
@@ -1963,7 +1989,7 @@ function LocationPanel({show,location,crops,nutrients,onClose,onCropTap,onAddCro
       </div>
     </Panel>
     <ConfirmSheet show={confirmWaterAll} title="Water all crops?" message={`This will log a watering for all ${locCrops.length} crop${locCrops.length!==1?"s":""} in ${location}.`} confirmLabel="Water All" onConfirm={()=>{onWaterAll(locCrops.map(c=>c.id));setConfirmWaterAll(false);}} onCancel={()=>setConfirmWaterAll(false)}/>
-    <FeedAllSheet show={showFeedAll} location={location} crops={locCrops} nutrients={nutrients} onFeedAll={(nutrient,qty,water)=>onFeedAll(locCrops.map(c=>c.id),nutrient,qty,water)} onClose={()=>setShowFeedAll(false)}/>
+    <FeedAllSheet show={showFeedAll} location={location} crops={locCrops} nutrients={nutrients} onFeedAll={(nutrient,qty,water,date)=>onFeedAll(locCrops.map(c=>c.id),nutrient,qty,water,date)} onClose={()=>setShowFeedAll(false)}/>
     </>
   );
 }
@@ -3377,8 +3403,8 @@ function App() {
     const entry={date:ts()};
     setCrops(cs=>cs.map(c=>ids.includes(c.id)?{...c,waterLog:[...(c.waterLog||[]),entry]}:c));
   };
-  const feedAll=(ids,nutrient,qty,water)=>{
-    const entry={date:ts(),nutrient,qty:qty||null,water:water||null};
+  const feedAll=(ids,nutrient,qty,water,date)=>{
+    const entry={date:date||ts(),nutrient,qty:qty||null,water:water||null};
     setCrops(cs=>cs.map(c=>ids.includes(c.id)?{...c,feedLog:[...(c.feedLog||[]),entry]}:c));
   };
   const transplantCrop=(id,toLoc,date,inContainer,containerSize,newLocs)=>{
