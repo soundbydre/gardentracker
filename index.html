@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <meta name="mobile-web-app-capable" content="yes">
@@ -813,7 +813,7 @@ function CropFormPanel({show,initial,locations,cropNames,varieties,containerSize
 
   if(!show) return null;
 
-  const iStyle={width:"100%",background:"rgba(255,255,255,0.06)",border:"1.5px solid rgba(255,255,255,0.1)",borderRadius:"10px",padding:"12px 14px",fontSize:"0.95rem",color:"white",outline:"none",boxSizing:"border-box"};
+  const iStyle={width:"100%",background:"rgba(255,255,255,0.06)",border:"1.5px solid rgba(255,255,255,0.1)",borderRadius:"10px",padding:"12px 14px",fontSize:"16px",color:"white",outline:"none",boxSizing:"border-box"};
   const errStyle={...iStyle,border:"1.5px solid #ef4444"};
   const sLabel=(txt)=>(<div style={{fontSize:"0.62rem",fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase",color:"rgba(134,239,172,0.5)",marginBottom:"10px"}}>{txt}</div>);
   const fLabel=(txt,req)=>(<div style={{fontSize:"0.75rem",fontWeight:600,color:"rgba(232,245,233,0.5)",marginBottom:"6px"}}>{txt}{req&&<span style={{color:"#fca5a5"}}> *</span>}</div>);
@@ -1239,8 +1239,8 @@ function CropDetailPanel({show,crop,allCrops,locations,nutrients,onClose,onEdit,
                 {label:crop.transplantDate?"Transplanted":"Weeks Since Start",value:crop.transplantDate?fmtDate(crop.transplantDate):`${Math.floor((daysAgo(crop.seedDate)||0)/7)} wks`},
                 {label:"Est. Harvest",value:estHarvestDate||"-"},
                 {label:"Days to Maturity",value:crop.daysToMaturity?`${crop.daysToMaturity}d`:"-"},
-                {label:"💧 Last Watered",value:daysWater===null?"Never":daysWater===0?"Today":`${daysWater}d ago`,highlight:daysWater>=3?"#60a5fa":null},
-                {label:"🌿 Last Fed",value:daysFed===null?"Never":daysFed===0?"Today":`${daysFed}d ago`,highlight:daysFed>=7?"#fbbf24":null},
+                {label:"💧 Last Watered",value:daysWater===null?"-":daysWater===0?"Today":`${daysWater}d ago`,highlight:daysWater>=3?"#60a5fa":null},
+                {label:"🌿 Last Fed",value:daysFed===null?"-":daysFed===0?"Today":`${daysFed}d ago`,highlight:daysFed>=7?"#fbbf24":null},
               ].map(s=>(
                 <div key={s.label} style={statStyle}>
                   <div style={{fontSize:"0.58rem",fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"rgba(232,245,233,0.3)",marginBottom:4}}>{s.label}</div>
@@ -1599,7 +1599,7 @@ function FeedLogSheet({show,crop,nutrients,onClose,onAddFeed,onUpdateSchedule,on
   const filtered=input.trim()?ranked.filter(n=>n.toLowerCase().includes(input.toLowerCase())):ranked;
   const reset=()=>{setInput("");setQty("");setIsLiquid(false);setWaterQty("");setAskInterval(false);setIntervalDays("");setSaved(false);};
   useEffect(()=>{if(!show)reset();},[show]);
-  const iStyle={background:"rgba(255,255,255,0.07)",border:"1.5px solid rgba(255,255,255,0.12)",borderRadius:"10px",padding:"11px 14px",fontSize:"0.92rem",color:"white",outline:"none"};
+  const iStyle={background:"rgba(255,255,255,0.07)",border:"1.5px solid rgba(255,255,255,0.12)",borderRadius:"10px",padding:"11px 14px",fontSize:"16px",color:"white",outline:"none"};
   const selectN=n=>{setInput(n);setShowDrop(false);};
   const handleSave=()=>{
     if(!input.trim())return;
@@ -1686,7 +1686,7 @@ function TransplantSheet({show,crop,locations,onClose,onTransplant}) {
   const [contSize,setContSize]=useState("");
   const available=(locations||[]).filter(l=>l!==crop?.location);
   useEffect(()=>{if(show){setToLoc("");setDate(todayStr());setContainer(false);setContSize("");}}, [show,crop?.location]);
-  const iStyle={background:"rgba(255,255,255,0.07)",border:"1.5px solid rgba(255,255,255,0.12)",borderRadius:"10px",padding:"11px 14px",fontSize:"0.92rem",color:"white",outline:"none"};
+  const iStyle={background:"rgba(255,255,255,0.07)",border:"1.5px solid rgba(255,255,255,0.12)",borderRadius:"10px",padding:"11px 14px",fontSize:"16px",color:"white",outline:"none"};
   return(
     <DarkSheet show={show} onClose={onClose} title="Transplant / Move">
       <div style={{display:"flex",flexDirection:"column",gap:14,paddingTop:4}}>
@@ -1891,7 +1891,7 @@ function FeedAllSheet({show,location,crops,nutrients,onFeedAll,onClose}) {
     setFeedTime(`${String(n.getHours()).padStart(2,"0")}:${String(n.getMinutes()).padStart(2,"0")}`);
   };
   useEffect(()=>{if(!show)reset();},[show]);
-  const iStyle={background:"rgba(255,255,255,0.07)",border:"1.5px solid rgba(255,255,255,0.12)",borderRadius:"10px",padding:"11px 14px",fontSize:"0.92rem",color:"white",outline:"none"};
+  const iStyle={background:"rgba(255,255,255,0.07)",border:"1.5px solid rgba(255,255,255,0.12)",borderRadius:"10px",padding:"11px 14px",fontSize:"16px",color:"white",outline:"none"};
   if(!show) return null;
   if(confirming) return(
     <div style={{position:"fixed",inset:0,zIndex:450}} onClick={()=>setConfirming(false)}>
@@ -2126,7 +2126,7 @@ function TodoPanel({show,crops,todos,onAddTodo,onToggleTodo,onDeleteTodo,onLogFe
   const done=todos.filter(t=>t.done);
   const overdueCount=feedTasks.filter(t=>t.urgency==="overdue"||t.urgency==="soon").length;
 
-  const iStyle={background:"rgba(255,255,255,0.06)",border:"1.5px solid rgba(255,255,255,0.1)",borderRadius:"10px",padding:"11px 14px",fontSize:"0.92rem",color:"white",outline:"none",width:"100%",boxSizing:"border-box"};
+  const iStyle={background:"rgba(255,255,255,0.06)",border:"1.5px solid rgba(255,255,255,0.1)",borderRadius:"10px",padding:"11px 14px",fontSize:"16px",color:"white",outline:"none",width:"100%",boxSizing:"border-box"};
 
   if(!show) return null;
   return(
